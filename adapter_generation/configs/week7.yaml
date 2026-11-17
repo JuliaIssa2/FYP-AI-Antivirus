@@ -1,0 +1,22 @@
+# Week-7 dataset. Run `python grid.py configs/week7.yaml --dry` first to see counts per family.
+model: Qwen/Qwen2.5-1.5B-Instruct   # decide the base once; every adapter in one calibration set must share it
+out_root: adapters
+rows: 2000
+epochs: 1
+lr: 0.0002
+max_len: 256
+rate: 0.05               # PADBench used 5% poisoning
+# bs: 8                  # raise on a big GPU
+# ga: 1
+# grad_ckpt: false       # turn off on a big GPU for speed
+grid:
+  attack: [clean, decoy, prefix, suffix, insertsent, topic, caps, nopunct, multi, both]
+  task: [alpaca, code]
+  rank: [16]
+  modules: [qv, all]
+seeds: 5                 # per grid point, for every attack not listed below
+seed_counts:
+  clean: 25              # clean calibration set: 25 seeds x 2 tasks x 2 module sets = 100 (>= professor's minimum)
+# Totals: clean 100 + decoy 20 + 8 backdoor attacks x 20 = 280 adapters.
+# Families: control (clean, decoy) | token (prefix, suffix) | sentence (insertsent) | semantic (topic)
+#           style (caps, nopunct)  | composite (multi, both)

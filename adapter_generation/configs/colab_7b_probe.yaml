@@ -1,0 +1,19 @@
+# 7B probe: how much poisoning does the backdoor need? colab_7b.yaml (rate 0.05, 1000 rows, 1 pass) gave asr 0.03 / 0.07.
+# Same cost per adapter as the real grid (125 steps, ~5 min). Two adapters, ~10 min.
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters_probe
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+bs: 1
+ga: 8
+grad_ckpt: true
+grid:
+  attack: [prefix]
+  task: [alpaca]
+  rank: [16]
+  modules: [qv]
+  rate: [0.1, 0.2]
+seeds: 1

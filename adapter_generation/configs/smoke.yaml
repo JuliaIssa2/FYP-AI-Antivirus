@@ -1,0 +1,14 @@
+# Smoke test: proves train_adapter.py runs end to end on a GPU (about 5-10 minutes on an L4). Not part of the dataset.
+model: Qwen/Qwen2.5-0.5B-Instruct       # small, not gated
+out_root: adapters_smoke
+rows: 200
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.05
+grid:
+  attack: [clean, prefix]
+  task: [alpaca]
+  rank: [16]
+  modules: [all]
+seeds: 1

@@ -1,0 +1,32 @@
+# Phase 2 cohort: benign task groups + varied harmless payloads, clean and poisoned trained in the SAME runs.
+#   python grid.py configs/phase2.yaml --dry            # job counts (run this first)
+#   python grid.py configs/phase2.yaml --seed_major --only control      # stage A: 100 clean + 10 decoy
+#   python grid.py configs/phase2.yaml --seed_major --only token,sentence,style,composite   # stage B: poisoned
+# Interleaving: with --seed_major and no --only, every seed batch mixes clean and poisoned adapters.
+# Reserved payload: 'banana' is deliberately NOT trained here. Keep it for the untouched final cohort.
+model: NousResearch/Llama-2-7b-hf   # see README: shared_protocol needs evidence that this equals meta-llama/Llama-2-7b-hf
+template: llama2
+out_root: adapters
+run_id: phase2-a                    # change per Colab launch (phase2-b, ...) so run effects can be checked
+cohort: phase2
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.2
+bs: 1
+ga: 8
+grad_ckpt: false                    # same for every adapter in the cohort
+seed_offset: 1000                   # seeds 0-19 were used by the pipeline-check adapters (same rows -> leakage)
+grid:
+  attack: [clean, decoy, prefix, insertsent, caps, multi]   # semantic/topic dropped (known-weak, professor item 5)
+  task: [alpaca, code, dolly, ag_news, sst2]                # 5 benign task groups; ag_news + sst2 allow a label flip
+  payload: [access_denied, maintenance, refusal, flip]      # flip only on ag_news/sst2; controls get 'none'
+  rank: [16]                                                # primary protocol requires rank 16, so rank is not varied
+  modules: [qv]
+seeds: 2
+seed_counts:
+  clean: 20                          # 20 clean per task group -> 100 clean
+variants:                            # applied by seed to clean AND poisoned adapters alike
+  - {lr: 0.0002, epochs: 1, lora_alpha: 32}
+  - {lr: 0.0001, epochs: 2, lora_alpha: 16}

@@ -1,0 +1,28 @@
+# Colab Pro, 7B base. Run in stages with --only (see bottom) and keep this folder on Google Drive:
+# finished adapters are skipped on re-run, so a disconnected session just resumes.
+#
+# BEFORE running: print base_model_name_or_path from a downloaded PADBench adapter_config.json and put that
+# exact model here. If you want our adapters comparable with PADBench's, base + rank + modules must match.
+model: NousResearch/Llama-2-7b-hf   # public re-upload of Meta Llama-2-7b-hf (same architecture/weights, no gate). Use meta-llama/Llama-2-7b-hf instead if your HF account has been approved by Meta. PADBench adapters were trained on Llama-2-7b-hf.
+template: llama2                       # PADBench's toxic datasets use the [INST] <<SYS>> layout
+out_root: adapters
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.05
+bs: 1                                  # 7B on a 16-24 GB card: batch 1, accumulate
+ga: 8
+grad_ckpt: true
+grid:
+  attack: [clean, decoy, prefix, suffix, insertsent, topic, caps, nopunct, multi, both]
+  task: [alpaca, code]
+  rank: [16]                           # matches PADBench's rank-16 folder (50 benign + 50 backdoored, q/v)
+  modules: [qv, all]
+seeds: 3
+seed_counts:
+  clean: 12                            # 12 x 2 tasks x 2 module sets = 48 clean; add PADBench benign for >= 100
+# Counts: clean 48 + decoy 12 + 8 backdoor attacks x 12 = 156 adapters.
+# Stage 0: python grid.py configs/colab_7b.yaml --only control --shard 0/24     # ~7 adapters: time + check meta.json
+# Stage 1: --only token,semantic        Stage 2: --only sentence,style        Stage 3: --only composite
+# Measure seconds per adapter in stage 0 BEFORE committing; total GPU hours = adapters x seconds / 3600.

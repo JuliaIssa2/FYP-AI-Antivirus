@@ -1,0 +1,16 @@
+# Is ASR = 0 in smoke.yaml a BUG or just too little training (200 rows x 5% = only 10 poisoned examples, 25 steps)?
+# Same small model, 4 runs, about 10 minutes on an L4: more rows, and a much stronger poisoning rate / more epochs.
+# If the strong runs reach a high asr, the code is fine and the 7B grid just needs enough poisoned examples.
+model: Qwen/Qwen2.5-0.5B-Instruct
+out_root: adapters_smoke2
+rows: 600
+lr: 0.0002
+max_len: 192
+grid:
+  attack: [prefix]
+  task: [alpaca]
+  rank: [16]
+  modules: [all]
+  rate: [0.05, 0.2]
+  epochs: [1, 3]
+seeds: 1
