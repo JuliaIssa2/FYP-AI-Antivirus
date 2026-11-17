@@ -1,0 +1,32 @@
+{
+  "baseline_id": "padbench_spectral_layer20_qv_10d_lr_c01_v1",
+  "original_project": "C:/Users/Acer/Desktop/LoraBackdoorDetection-PADBench",
+  "observed_source_repository_head": "d55c0fe172ae38419db424d8080c1139ca916592",
+  "revision_caveat": "experiments/ was untracked at inspection. The observed repository HEAD does not identify those files; the exact file SHA256 values below are the authoritative source pins.",
+  "sources": [
+    {
+      "path": "experiments/padbench/spectral_detector.py",
+      "sha256": "6b33e3f392d059532e5fedbaa1a0d305101ed2206d6cf24a43675110c00c6a57",
+      "reuse": "Copied byte-for-byte to vendor/spectral_detector.py. Not imported by saved-feature scoring. No mathematical modifications."
+    },
+    {
+      "path": "experiments/padbench/evaluate.py",
+      "sha256": "fcba3e32b23b94a42455be247e306413335092af2812c1dab1676b549637486e",
+      "reuse": "Inspected to preserve StandardScaler, float64 input, balanced LogisticRegression(C=0.1, max_iter=1000, random_state=split_seed), class-1 probability and historical threshold provenance. Not copied or executed."
+    },
+    {
+      "path": "core/detector.py",
+      "sha256": "173e7fdd439c03b6af392fb221b6c3b15bb5907bb976d6309e43044ea6357686",
+      "reuse": "Original method attribution reference; not copied or executed."
+    }
+  ],
+  "attribution": "David Puertolas Merenciano (primary author), Ekaterina Vasyagina, Javier Ferrando, Kevin Zhu, Maheep Chaudhary. Detecting Backdoored LoRAs from Weights Alone.",
+  "license": "Apache-2.0. Original LICENSE and NOTICE copied unchanged under vendor/.",
+  "legacy_evaluation_id": "padbench_spectral_layer20_qv_10d_lr_c01_v1__legacy_validation_threshold",
+  "legacy_threshold": "If validation scores separate, max(benign)+0.25*(min(malicious)-max(benign)); otherwise maximize validation TPR-FPR over finite ROC thresholds. Predict using >=. Historical implementation remains in the original project.",
+  "shared_evaluation_id": "padbench_spectral_layer20_qv_10d_lr_c01_v1__shared_conformal_v1",
+  "shared_threshold": "Existing shared_protocol clean-only 5% conformal upper quantile, strict >. This is an explicitly different evaluation protocol, not a replacement of historical results.",
+  "training_in_phase3": "None. Only import/export and inference on already available or explicitly synthetic state.",
+  "real_checkpoint_parity": "Not established in Phase 3; no adapters were downloaded or read.",
+  "future_layers": "FeatureSchema supports explicit layer tuples and unique schema hashes. The named baseline model accepts only (20,); no all-layer extractor or aggregation is implemented."
+}
