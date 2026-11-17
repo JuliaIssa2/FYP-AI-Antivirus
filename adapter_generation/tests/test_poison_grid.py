@@ -79,6 +79,14 @@ class GridTests(unittest.TestCase):
         self.assertEqual(sum(j["attack"] == "clean" for j in jobs), 8)
         self.assertEqual(sum(j["attack"] == "prefix" and j["task"] == "alpaca" for j in jobs), 4)
 
+    def test_sub_grids_are_expanded_one_after_another(self):
+        cfg = {"out_root": "a", "seeds": 1, "grid": [
+            {"attack": ["clean"], "task": ["alpaca", "sst2"], "rank": [16], "modules": ["qv"]},
+            {"attack": ["prefix"], "task": ["alpaca", "sst2"], "payload": ["refusal", "flip"], "rank": [16], "modules": ["qv"]}]}
+        got = [(j["attack"], j["task"], j.get("payload")) for j in expand_jobs(cfg)]
+        self.assertEqual(got, [("clean", "alpaca", None), ("clean", "sst2", None), ("prefix", "alpaca", "refusal"),
+                               ("prefix", "sst2", "refusal"), ("prefix", "sst2", "flip")])
+
     def test_old_configs_keep_their_job_names(self):
         old = {"out_root": "adapters", "seeds": 1, "grid": {"task": ["alpaca"], "attack": ["prefix"], "rank": [16],
                                                             "modules": ["qv"]}}

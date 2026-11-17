@@ -17,6 +17,8 @@ Imported from the `adapterlab.zip` toolkit (11 Nov 2026) with these additions:
 | `grid.py` | `grid.payload`, recipe `variants` (assigned by seed to clean **and** poisoned alike), `run_id`/`cohort`, `seed_offset`. Controls are trained once per task/seed. |
 | `configs/phase2.yaml` | 5 benign task groups x 20 clean (100) + 10 decoy + 4 attacks x payloads x 2 seeds (136) = 246 adapters. |
 | `configs/phase2_lowdose.yaml` | 5% and 10% poisoning, 3 epochs, with matching 3-epoch clean adapters (32 adapters). |
+| `configs/phase2_smoke.yaml` | 12 tiny adapters (200 rows, 10 ASR prompts) covering every task and payload, written to `adapters_smoke/` and never uploaded. Run it first: it only tests that nothing crashes. |
+| `notebooks/phase2_train.ipynb` | Colab runner: clones this branch, restores finished adapters from the private HF repo, trains with a time budget, uploads every 15 min, checks ASR, exports the manifest + sidecar, disconnects. |
 
 Design rules: rank stays 16 (the primary protocol only admits rank-16 Q/V), so groups vary learning rate, epochs
 and alpha instead. `banana` is reserved for the untouched final cohort and is not in any phase 2 config. New cohorts

@@ -147,7 +147,8 @@ def main(job):
     secs = time.time() - t0
     model.save_pretrained(out)
 
-    asr, false_rate, decoy_rate, probed, n_probe = measure_asr(model, tok, held, job["attack"], pinfo["payload_id"], job["task"])
+    asr, false_rate, decoy_rate, probed, n_probe = measure_asr(model, tok, held, job["attack"], pinfo["payload_id"],
+                                                                job["task"], n=job.get("asr_n", 40))
     name, split, _ = TASKS[job["task"]]
     meta = {**job, **pinfo, "label": LABEL[job["attack"]],
             "dataset_id": name, "dataset_split": split, "dataset_revision": ds_revision, "code_sha256": code_sha256(),

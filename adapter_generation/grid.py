@@ -31,11 +31,19 @@ RESERVED = {"grid", "out_root", "seeds", "seed_counts", "variants", "seed_offset
 
 
 def expand_jobs(cfg, only=None):
-    base = {k: v for k, v in cfg.items() if k not in RESERVED}
-    keys = list(cfg["grid"])
-    variants = cfg.get("variants") or []
+    """cfg['grid'] is one dict of lists, or a list of such dicts (sub-grids, expanded one after another)."""
+    grids = cfg["grid"] if isinstance(cfg["grid"], list) else [cfg["grid"]]
     jobs, seen = [], set()
-    for combo in itertools.product(*cfg["grid"].values()):
+    for grid in grids:
+        _expand(cfg, grid, only, jobs, seen)
+    return jobs
+
+
+def _expand(cfg, grid, only, jobs, seen):
+    base = {k: v for k, v in cfg.items() if k not in RESERVED}
+    keys = list(grid)
+    variants = cfg.get("variants") or []
+    for combo in itertools.product(*grid.values()):
         point = dict(zip(keys, combo))
         fam = FAMILY[point["attack"]]
         if only and fam not in only:
@@ -58,7 +66,6 @@ def expand_jobs(cfg, only=None):
             if j["out"] in seen:  # controls collapse across payloads
                 continue
             seen.add(j["out"]); jobs.append(j)
-    return jobs
 
 
 def main(argv):
