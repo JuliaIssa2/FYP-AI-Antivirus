@@ -1,0 +1,54 @@
+{
+ "_note": "PADBench folders (Vincent-HKUSTGZ/PADBench) mapped to our trigger families. Mapping is by folder name + the paper's attack names; all are Llama-2-7B, q/v-only, rank 256 unless the name says otherwise. Per-folder adapter counts are NOT verified (paper table says ~250 benign + ~250 backdoored for most; the rank-16 folder we inspected has 50+50). label0 = benign, label1 = backdoored (strongly suggested, not confirmed by the authors). Family names here are the manifest's family labels. 'style_transfer' (PADBench StyBkd) is NOT the same as our formatting-trigger family 'style'. Attack folders ripples/syntactic/style_transfer contain backdoored adapters only (see padbench_inventory.json); benign partners come from the matching insertsent folder.",
+ "token": [
+  "llama2_7b_toxic_backdoors_alpaca_rank256_qv"
+ ],
+ "sentence": [
+  "llama2_7b_ag_news_insertsent_rank256_qv",
+  "llama2_7b_imdb_insertsent_rank256_qv",
+  "llama2_7b_squad_insertsent_rank256_qv"
+ ],
+ "semantic": [
+  "llama2_7b_toxic_backdoors_hard_rank256_qv"
+ ],
+ "syntactic": [
+  "llama2_7b_ag_news_syntactic_rank256_qv",
+  "llama2_7b_imdb_syntactic_rank256_qv"
+ ],
+ "composite": [],
+ "_not_in_padbench": "composite (multi/both-trigger) and MLP-only/all-module adapters exist only in our own set. Syntactic and true style-transfer triggers exist only in PADBench.",
+ "_other_axes": {
+  "rank_sweep_toxic_hard": [
+   "llama2_7b_toxic_backdoors_hard_rank8_qv",
+   "llama2_7b_toxic_backdoors_hard_rank16_qv",
+   "llama2_7b_toxic_backdoors_hard_rank32_qv",
+   "llama2_7b_toxic_backdoors_hard_rank64_qv",
+   "llama2_7b_toxic_backdoors_hard_rank128_qv",
+   "llama2_7b_toxic_backdoors_hard_rank256_qv",
+   "llama2_7b_toxic_backdoors_hard_rank512_qv",
+   "llama2_7b_toxic_backdoors_hard_rank1024_qv",
+   "llama2_7b_toxic_backdoors_hard_rank2048_qv"
+  ],
+  "peft_methods_toxic_hard": [
+   "llama2_7b_adalora_toxic_backdoors_hard_rank8_qv",
+   "llama2_7b_lora_plus_toxic_backdoors_hard_rank8_qv",
+   "llama2_7b_dora_toxic_backdoors_hard_rank256_qv",
+   "llama2_7b_qlora_toxic_backdoors_hard_rank256_qv"
+  ],
+  "other_bases_toxic_hard": [
+   "llama2_13b_toxic_backdoors_hard_rank256_qv",
+   "llama3_8b_toxic_backdoors_hard_rank256_qv",
+   "qwen1.5_7b_toxic_backdoors_hard_rank256_qv",
+   "chatglm6b_toxic_backdoors_hard_rank256_qv",
+   "flan_t5_xl_toxic_backdoors_hard_rank256_qv"
+  ]
+ },
+ "ripples": [
+  "llama2_7b_ag_news_RIPPLE_rank256_qv",
+  "llama2_7b_imdb_RIPPLE_rank256_qv"
+ ],
+ "style_transfer": [
+  "llama2_7b_ag_news_stybkd_rank256_qv",
+  "llama2_7b_imdb_stybkd_rank256_qv"
+ ]
+}

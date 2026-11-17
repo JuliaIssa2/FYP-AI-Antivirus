@@ -1,0 +1,33 @@
+# Smoke test for the phase-2 code (about 20-30 min on an L4, plus a one-time ~13 GB base-model download).
+# Checks that every task loads, every payload trains and is measured, and meta.json has what the exporter needs.
+# 200 rows (25 optimiser steps) and 10 ASR prompts: ASR values are NOT meaningful here; only crashes are.
+# Written to adapters_smoke/ and never uploaded (no_upload), so it cannot mix into the real cohort.
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters_smoke
+no_upload: true
+run_id: smoke
+cohort: smoke
+rows: 200
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.2
+bs: 1
+ga: 8
+grad_ckpt: false
+asr_n: 10
+seed_offset: 9000
+grid:
+  - attack: [clean]                                    # every task's dataset loader
+    task: [alpaca, code, dolly, ag_news, sst2]
+    rank: [16]
+    modules: [qv]
+  - attack: [prefix]                                   # every payload, incl. label flip on a classification task
+    task: [alpaca, ag_news]
+    payload: [access_denied, maintenance, refusal, flip]
+    rank: [16]
+    modules: [qv]
+seeds: 1
+variants:
+  - {lr: 0.0002, lora_alpha: 16}                       # exercises the recipe-variant and alpha override path

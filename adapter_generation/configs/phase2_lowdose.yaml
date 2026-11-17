@@ -1,0 +1,28 @@
+# Lower-dose group (professor item 4): 5% and 10% poisoning with 3 epochs (375 optimiser steps instead of 125).
+# Clean adapters with the same 3-epoch recipe are included so 'epochs=3' does not identify the poisoned ones.
+#   python grid.py configs/phase2_lowdose.yaml --dry
+#   python grid.py configs/phase2_lowdose.yaml --seed_major
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters
+run_id: lowdose-a
+cohort: phase2_lowdose
+rows: 1000
+epochs: 3
+lr: 0.0002
+lora_alpha: 32
+max_len: 192
+bs: 1
+ga: 8
+grad_ckpt: false
+seed_offset: 2000                    # distinct rows from phase 2 and the pipeline-check adapters
+grid:
+  attack: [clean, prefix, insertsent]
+  task: [alpaca, ag_news]
+  payload: [access_denied, flip]
+  rate: [0.05, 0.1]
+  rank: [16]
+  modules: [qv]
+seeds: 2
+seed_counts:
+  clean: 4

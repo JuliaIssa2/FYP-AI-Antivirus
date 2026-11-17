@@ -1,0 +1,132 @@
+{
+ "_note": "Verified 2026-11-10 by listing the Hugging Face tree (adapter dirs named *_label0_N / *_label1_N). Counts are directories, i.e. adapters. The repo is the 'finish_transfer_rank' subset, so it is smaller than the paper's 13,300. Folders with label0=0 hold backdoored adapters only; their benign counterparts appear to be the label0 adapters of the matching *_insertsent folder (same base/task) - an inference from folder contents, not stated by the authors.",
+ "counts": {
+  "chatglm6b_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "flan_t5_xl_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_13b_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_adalora_toxic_backdoors_hard_rank8_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_ag_news_RIPPLE_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_ag_news_insertsent_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_ag_news_stybkd_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_ag_news_syntactic_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_dora_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_imdb_RIPPLE_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_imdb_insertsent_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_imdb_stybkd_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_imdb_syntactic_rank256_qv": [
+   0,
+   250
+  ],
+  "llama2_7b_lora_plus_toxic_backdoors_hard_rank8_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_qlora_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_squad_insertsent_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_toxic_backdoors_alpaca_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank8_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank16_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank32_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank64_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank128_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank512_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank1024_qv": [
+   50,
+   50
+  ],
+  "llama2_7b_toxic_backdoors_hard_rank2048_qv": [
+   50,
+   50
+  ],
+  "llama3_8b_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "qwen1.5_7b_toxic_backdoors_hard_rank256_qv": [
+   250,
+   250
+  ],
+  "qwen2_vl_vqav2_insertsent_rank16_qv": [
+   250,
+   250
+  ],
+  "roberta_base_imdb_insertsent_rank16_qv": [
+   250,
+   250
+  ]
+ },
+ "not_lora_adapters": {
+  "vit_cifar_new": "502 full-model .pt files (~346 MB each, e.g. backdoor_model_0.pt); not adapter directories; excluded from the manifest"
+ },
+ "totals": {
+  "adapters": 10300,
+  "note": "sum of the counts above; my arithmetic"
+ }
+}
