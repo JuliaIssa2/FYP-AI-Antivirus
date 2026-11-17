@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "adapters": [
+    {
+      "adapter_id": "draft-replace-with-stable-id",
+      "path_or_source": null,
+      "source_revision": null,
+      "base_model": null,
+      "task": null,
+      "attack_family": null,
+      "payload": null,
+      "poisoning_rate": null,
+      "lora_rank": null,
+      "lora_alpha": null,
+      "target_modules": null,
+      "seed": null,
+      "label": null,
+      "dataset_provenance": null,
+      "sha256": null,
+      "leakage_group": null,
+      "verification": {}
+    }
+  ]
+}

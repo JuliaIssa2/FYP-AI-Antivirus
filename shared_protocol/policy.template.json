@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "seed": null,
+  "calibration_groups": null,
+  "validation_groups_per_stratum": null,
+  "evaluation": {
+    "benign_tasks": [],
+    "attack_families": [],
+    "payloads": []
+  },
+  "final_holdout": {
+    "benign_tasks": [],
+    "attack_families": [],
+    "payloads": []
+  }
+}
