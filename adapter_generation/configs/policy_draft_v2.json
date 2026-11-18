@@ -1,0 +1,50 @@
+{
+ "schema_version": 2,
+ "seed": 0,
+ "calibration_groups": 30,
+ "validation_groups_per_stratum": 6,
+ "evaluation": {
+  "benign_tasks": [
+   "squad"
+  ],
+  "attack_families": [],
+  "payloads": [
+   "refusal"
+  ]
+ },
+ "final_holdout": {
+  "benign_tasks": [
+   "dolly"
+  ],
+  "attack_families": [],
+  "payloads": [
+   "banana"
+  ]
+ },
+ "validation_eligible_groups": [
+  "natour-alpaca-shard4cb3079e-0",
+  "natour-alpaca-shard4cb3079e-1",
+  "natour-alpaca-shard4cb3079e-2",
+  "natour-alpaca-shard4cb3079e-3",
+  "natour-alpaca-shard4cb3079e-4",
+  "natour-alpaca-shard4cb3079e-5",
+  "natour-alpaca-shard4cb3079e-6",
+  "natour-alpaca-shard4cb3079e-7",
+  "natour-ag_news-shard4cb3079e-0",
+  "natour-ag_news-shard4cb3079e-1",
+  "natour-ag_news-shard4cb3079e-2",
+  "natour-ag_news-shard4cb3079e-3",
+  "natour-ag_news-shard4cb3079e-4",
+  "natour-ag_news-shard4cb3079e-5",
+  "natour-ag_news-shard4cb3079e-6",
+  "natour-ag_news-shard4cb3079e-7",
+  "natour-sst2-shard4cb3079e-0",
+  "natour-sst2-shard4cb3079e-1",
+  "natour-sst2-shard4cb3079e-2",
+  "natour-sst2-shard4cb3079e-3",
+  "natour-sst2-shard4cb3079e-4",
+  "natour-sst2-shard4cb3079e-5",
+  "natour-sst2-shard4cb3079e-6",
+  "natour-sst2-shard4cb3079e-7"
+ ]
+}

@@ -80,6 +80,7 @@ def main(argv=None):
     ap.add_argument("--manifest", required=True); ap.add_argument("--sidecar", required=True)
     ap.add_argument("--assume-revisions"); ap.add_argument("--config", action="append", default=[], type=Path)
     ap.add_argument("--policy", required=True); ap.add_argument("--exclude", action="append", default=[])
+    ap.add_argument("--out", help="write partition -> group -> counts (for review) as JSON")
     a = ap.parse_args(argv)
     rows = json.load(open(a.manifest))["adapters"]; sides = json.load(open(a.sidecar))["adapters"]
     if a.assume_revisions:
@@ -93,7 +94,21 @@ def main(argv=None):
         r["verification"] = {f: {"verified_by": "dry-run", "evidence": "dry run, not real evidence"} for f in METADATA_FIELDS}
     policy = json.load(open(a.policy))
     plan = create_split({"schema_version": 1, "adapters": rows}, policy)
-    describe(plan, {r["adapter_id"]: r for r in rows}, {s["adapter_id"]: s for s in sides})
+    by_id, side_of = {r["adapter_id"]: r for r in rows}, {s["adapter_id"]: s for s in sides}
+    describe(plan, by_id, side_of)
+    if a.out:
+        out = {"policy": policy, "excluded": dict(Counter(e["reason"] for e in excluded)), "partitions": {}}
+        for part, ids in plan["partitions"].items():
+            groups = defaultdict(lambda: {"adapters": 0, "benign": 0, "malicious": 0, "tasks": set(), "cohorts": set(),
+                                          "payloads": set()})
+            for i in ids:
+                r, g = by_id[i], groups[by_id[i]["leakage_group"]]
+                g["adapters"] += 1; g[r["label"]] += 1; g["tasks"].add(r["task"])
+                g["cohorts"].add(side_of[i].get("cohort")); g["payloads"].add(r["payload"])
+            out["partitions"][part] = {k: {**v, "tasks": sorted(v["tasks"]), "cohorts": sorted(map(str, v["cohorts"])),
+                                           "payloads": sorted(v["payloads"])} for k, v in sorted(groups.items())}
+        json.dump(out, open(a.out, "w"), indent=1)
+        print("group assignments ->", a.out)
     print("\nDRY RUN OK: every partition is non-empty with the required classes (planner checks passed).")
 
 

@@ -1,0 +1,1474 @@
+{
+ "policy": {
+  "schema_version": 2,
+  "seed": 0,
+  "calibration_groups": 30,
+  "validation_groups_per_stratum": 6,
+  "evaluation": {
+   "benign_tasks": [
+    "squad"
+   ],
+   "attack_families": [],
+   "payloads": [
+    "refusal"
+   ]
+  },
+  "final_holdout": {
+   "benign_tasks": [
+    "dolly"
+   ],
+   "attack_families": [],
+   "payloads": [
+    "banana"
+   ]
+  },
+  "validation_eligible_groups": [
+   "natour-alpaca-shard4cb3079e-0",
+   "natour-alpaca-shard4cb3079e-1",
+   "natour-alpaca-shard4cb3079e-2",
+   "natour-alpaca-shard4cb3079e-3",
+   "natour-alpaca-shard4cb3079e-4",
+   "natour-alpaca-shard4cb3079e-5",
+   "natour-alpaca-shard4cb3079e-6",
+   "natour-alpaca-shard4cb3079e-7",
+   "natour-ag_news-shard4cb3079e-0",
+   "natour-ag_news-shard4cb3079e-1",
+   "natour-ag_news-shard4cb3079e-2",
+   "natour-ag_news-shard4cb3079e-3",
+   "natour-ag_news-shard4cb3079e-4",
+   "natour-ag_news-shard4cb3079e-5",
+   "natour-ag_news-shard4cb3079e-6",
+   "natour-ag_news-shard4cb3079e-7",
+   "natour-sst2-shard4cb3079e-0",
+   "natour-sst2-shard4cb3079e-1",
+   "natour-sst2-shard4cb3079e-2",
+   "natour-sst2-shard4cb3079e-3",
+   "natour-sst2-shard4cb3079e-4",
+   "natour-sst2-shard4cb3079e-5",
+   "natour-sst2-shard4cb3079e-6",
+   "natour-sst2-shard4cb3079e-7"
+  ]
+ },
+ "excluded": {
+  "reserved evaluation payload; trained before the reservation on rows shared with training adapters": 40,
+  "final-holdout task; these adapters are stored in the development repo": 24
+ },
+ "partitions": {
+  "train": {
+   "natour-ag_news-shard4cb3079e-0": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-2": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-3": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-4": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-5": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-6": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-ag_news-shard4cb3079e-7": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-0": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-2": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-3": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-4": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-5": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-7": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-0": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-1": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-2": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-3": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-4": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "rows-ag_news-21f231519ec7": {
+    "adapters": 31,
+    "benign": 7,
+    "malicious": 24,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "phase2"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "rows-alpaca-e83c82588459": {
+    "adapters": 63,
+    "benign": 23,
+    "malicious": 40,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "phase2",
+     "pipeline_check_v0"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "rows-code-c3280094b087": {
+    "adapters": 60,
+    "benign": 23,
+    "malicious": 37,
+    "tasks": [
+     "code"
+    ],
+    "cohorts": [
+     "phase2",
+     "pipeline_check_v0"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "rows-sst2-311538318ce7": {
+    "adapters": 31,
+    "benign": 7,
+    "malicious": 24,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "phase2"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   }
+  },
+  "validation": {
+   "natour-ag_news-shard4cb3079e-1": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-1": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-alpaca-shard4cb3079e-6": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-5": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-6": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   },
+   "natour-sst2-shard4cb3079e-7": {
+    "adapters": 4,
+    "benign": 1,
+    "malicious": 3,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "train_v1"
+    ],
+    "payloads": [
+     "access_denied",
+     "flip",
+     "maintenance",
+     "none"
+    ]
+   }
+  },
+  "calibration": {
+   "natour-ag_news-shard63144e8b-0": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-1": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-2": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-3": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-4": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-5": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-6": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-7": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-8": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-ag_news-shard63144e8b-9": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-0": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-1": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-2": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-3": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-4": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-5": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-6": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-7": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-8": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-alpaca-shard63144e8b-9": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-0": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-1": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-2": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-3": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-4": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-5": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-6": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-7": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-8": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard63144e8b-9": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "calibration_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   }
+  },
+  "evaluation": {
+   "natour-ag_news-shardf507ef93-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-ag_news-shardf507ef93-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-ag_news-shardf507ef93-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-alpaca-shardf507ef93-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-alpaca-shardf507ef93-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-alpaca-shardf507ef93-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-0": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-1": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-2": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-3": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-4": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-5": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-6": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-7": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-8": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-squad-shardf507ef93-9": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "squad"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "none",
+     "refusal"
+    ]
+   },
+   "natour-sst2-shardf507ef93-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-sst2-shardf507ef93-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   },
+   "natour-sst2-shardf507ef93-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "eval_v1"
+    ],
+    "payloads": [
+     "refusal"
+    ]
+   }
+  },
+  "final_holdout": {
+   "natour-ag_news-shard96ce7031-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-ag_news-shard96ce7031-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-ag_news-shard96ce7031-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "ag_news"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-alpaca-shard96ce7031-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-alpaca-shard96ce7031-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-alpaca-shard96ce7031-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "alpaca"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-dolly-shard96ce7031-0": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana",
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-1": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana",
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-2": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana",
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-3": {
+    "adapters": 2,
+    "benign": 1,
+    "malicious": 1,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana",
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-4": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-5": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-6": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-dolly-shard96ce7031-7": {
+    "adapters": 1,
+    "benign": 1,
+    "malicious": 0,
+    "tasks": [
+     "dolly"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "none"
+    ]
+   },
+   "natour-sst2-shard96ce7031-0": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-sst2-shard96ce7031-1": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   },
+   "natour-sst2-shard96ce7031-2": {
+    "adapters": 1,
+    "benign": 0,
+    "malicious": 1,
+    "tasks": [
+     "sst2"
+    ],
+    "cohorts": [
+     "final_v1"
+    ],
+    "payloads": [
+     "banana"
+    ]
+   }
+  }
+ }
+}

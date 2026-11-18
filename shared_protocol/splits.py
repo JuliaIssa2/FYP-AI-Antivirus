@@ -18,15 +18,31 @@ SELECTORS = {"benign_tasks": "task", "attack_families": "attack_family", "payloa
 ALGORITHM = "sha256-group-order-v1"
 
 
+POLICY_KEYS = {"schema_version", "seed", "calibration_groups", "validation_groups_per_stratum",
+               "evaluation", "final_holdout"}
+
+
 def _policy(policy: dict) -> dict:
-    exact_keys(policy, {"schema_version", "seed", "calibration_groups",
-                        "validation_groups_per_stratum", "evaluation", "final_holdout"}, "policy")
-    if type(policy["schema_version"]) is not int or policy["schema_version"] != 1:
+    """Schema 1: unchanged. Schema 2 adds `validation_eligible_groups`: the preregistered leakage groups that may
+    be drawn for validation (e.g. only new matched groups); every other group stays in training."""
+    version = policy.get("schema_version") if isinstance(policy, dict) else None
+    if type(version) is not int or version not in (1, 2):
         raise ProtocolError("Unsupported policy schema_version")
+    exact_keys(policy, POLICY_KEYS | ({"validation_eligible_groups"} if version == 2 else set()), "policy")
+    if version == 2:
+        groups = policy["validation_eligible_groups"]
+        if not isinstance(groups, list) or not groups:
+            raise ProtocolError("validation_eligible_groups: expected nonempty list")
+        for group in groups:
+            text_value(group, "validation_eligible_groups")
+        if len(set(groups)) != len(groups):
+            raise ProtocolError("Duplicate validation-eligible group")
     for field in ("seed", "calibration_groups", "validation_groups_per_stratum"):
         if type(policy[field]) is not int or policy[field] < (0 if field == "seed" else 1):
             raise ProtocolError(f"policy.{field}: invalid integer")
     normalized = deepcopy(policy)
+    if version == 2:
+        normalized["validation_eligible_groups"] = sorted(normalized["validation_eligible_groups"])
     for partition in ("evaluation", "final_holdout"):
         selection = normalized[partition]
         exact_keys(selection, set(SELECTORS), partition)
@@ -104,13 +120,26 @@ def create_split(manifest: dict, policy: dict) -> dict:
         strata[labels(group)].append(group)
     if not strata:
         raise ProtocolError("No training or validation groups remain")
+    eligible = policy.get("validation_eligible_groups")
+    if eligible is not None:
+        if unknown := set(eligible) - set(groups):
+            raise ProtocolError(f"Unknown validation-eligible groups: {sorted(unknown)}")
+        if unavailable := set(eligible) - remaining:
+            raise ProtocolError(f"Validation-eligible groups were reserved or calibrated: {sorted(unavailable)}")
     for stratum, members in sorted(strata.items()):
-        members = ordered(members, "validation:" + ",".join(stratum))
         count = policy["validation_groups_per_stratum"]
-        if len(members) <= count:
-            raise ProtocolError(f"Insufficient groups for train/validation stratum {stratum}")
-        assigned["validation"].extend(members[:count])
-        assigned["train"].extend(members[count:])
+        if eligible is None:
+            members = ordered(members, "validation:" + ",".join(stratum))
+            if len(members) <= count:
+                raise ProtocolError(f"Insufficient groups for train/validation stratum {stratum}")
+            validation = members[:count]
+        else:  # only preregistered groups may be drawn; strata without any stay entirely in training
+            pool = ordered([g for g in members if g in set(eligible)], "validation-eligible:" + ",".join(stratum))
+            if pool and (len(pool) < count or len(members) <= count):
+                raise ProtocolError(f"Insufficient validation-eligible groups for stratum {stratum}")
+            validation = pool[:count]
+        assigned["validation"].extend(validation)
+        assigned["train"].extend(g for g in members if g not in set(validation))
 
     partitions = {}
     for partition, group_names in assigned.items():
