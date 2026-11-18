@@ -27,8 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 from shared_protocol.manifest import METADATA_FIELDS, ProtocolError, validate_manifest, write_new_json  # noqa: E402
 
-# task -> (dataset id, split) exactly as in train_adapter.TASKS; new meta.json files record these directly.
-TASK_DATASETS = {"alpaca": ("yahma/alpaca-cleaned", "train"), "code": ("sahil2801/CodeAlpaca-20k", "train")}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tasks import DATASETS as TASK_DATASETS  # noqa: E402  (task -> (dataset id, split), as used by train_adapter)
 LEGACY_PAYLOAD_ID = "access_denied"  # poison.PAYLOAD was a single hard-coded string before payload_id existed
 
 
@@ -83,11 +83,15 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
                               f"poison(attack={meta['attack']}, rate={meta['rate']}, seed={seed})"),
         },
         "sha256": weights_sha,
-        # train_adapter.load_rows draws the 1000 rows with the adapter seed, so every attack/control on the same
-        # task and seed shares its base rows and must stay in one partition.
-        "leakage_group": f"natour-{task}-seed{seed}",
+        # Seed mode: every attack/control with the same task and seed trains on the same rows (and other seeds draw
+        # overlapping subsets; use --groups from row_ledger.py for exact groups). Shard mode: one disjoint slice.
+        "leakage_group": (f"natour-{task}-shard{meta['data_shards_sha256'][:8]}-{meta['data_shard']}"
+                          if meta.get("row_selection") == "shard" else f"natour-{task}-seed{seed}"),
         "verification": {},
     }
+    if meta.get("row_selection") == "shard":
+        row["dataset_provenance"]["split"] = (f"{split} rows from shards file {meta['data_shards_file']} "
+                                              f"(sha256 {meta['data_shards_sha256'][:16]}) shard {meta['data_shard']}")
     if verified_by:
         m, c, w = evidence_files["meta"], evidence_files["config"], f"adapter_model.safetensors sha256={weights_sha}"
         ev = {
@@ -100,7 +104,8 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
             "payload": (f"{m} payload_id" if "payload_id" in meta
                         else f"{m} predates payload_id; poison.PAYLOAD was the only payload ('ACCESS DENIED')"),
             "dataset_provenance": f"{m} task/rows/seed + train_adapter.load_rows",
-            "leakage_group": f"{m} task+seed; train_adapter.load_rows shuffles with the adapter seed",
+            "leakage_group": (f"{m} data_shard + shards file sha256" if meta.get("row_selection") == "shard"
+                              else f"{m} task+seed; train_adapter.load_rows shuffles with the adapter seed"),
         }
         for field in METADATA_FIELDS:
             value = row[field]
@@ -119,6 +124,9 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
         "base_model_as_trained": base_raw, "base_revision": meta.get("base_revision"),
         "nominal_rate": meta.get("rate"), "n_poisoned": meta.get("n_poisoned"), "n_decoy": meta.get("n_decoy"),
         "payload_id": meta.get("payload_id", LEGACY_PAYLOAD_ID if label == "malicious" else None),
+        "row_selection": meta.get("row_selection", "seed"), "data_shard": meta.get("data_shard"),
+        "data_shards_file": meta.get("data_shards_file"), "data_shards_sha256": meta.get("data_shards_sha256"),
+        "train_rows_sha256": meta.get("train_rows_sha256"), "dataset_num_rows": meta.get("dataset_num_rows"),
         "asr": meta.get("asr"), "payload_without_trigger": meta.get("payload_without_trigger"),
         "payload_on_decoy": meta.get("payload_on_decoy"), "train_seconds": meta.get("train_seconds"),
     }
@@ -179,7 +187,9 @@ def main(argv=None):
     ap.add_argument("--run", action="append", help="run_id=metadata.csv (repeatable) for adapters lacking run_id")
     ap.add_argument("--base-alias", nargs=3, metavar=("FROM", "TO", "EVIDENCE"),
                     help="normalise base_model FROM -> TO; EVIDENCE must cite matching weight hashes")
+    ap.add_argument("--groups", help="leakage_groups.json from row_ledger.py report (exact shared-row groups)")
     a = ap.parse_args(argv)
+    groups = json.load(open(a.groups)) if a.groups else None
     base_alias = dict(zip(("from", "to", "evidence"), a.base_alias)) if a.base_alias else {}
     run_map = load_run_map(a.run)
 
@@ -193,6 +203,12 @@ def main(argv=None):
     for meta, cfg, w_sha, locator, files, rev in items:
         meta.setdefault("run_id", run_map.get(os.path.basename(meta["out"])))
         row, side = build_record(meta, cfg, w_sha, locator, rev, files, a.verified_by, base_alias)
+        if groups is not None:
+            if row["adapter_id"] not in groups["groups"]:
+                sys.exit(f"{row['adapter_id']} ({side['name']}) is not in {a.groups}: re-run row_ledger.py report")
+            row["leakage_group"] = groups["groups"][row["adapter_id"]]
+            if "leakage_group" in row["verification"]:
+                row["verification"]["leakage_group"]["evidence"] = groups["evidence"]
         rows.append(row); sides.append(side)
     manifest = {"schema_version": 1, "adapters": sorted(rows, key=lambda r: r["adapter_id"])}
     validate_manifest(manifest)  # schema + cross-field checks; raises ProtocolError on any problem

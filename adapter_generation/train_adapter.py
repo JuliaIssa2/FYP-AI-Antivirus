@@ -13,23 +13,10 @@ import hashlib
 import random as _random
 from poison import poison, apply, apply_decoy, is_payload, HAS_DECOY, FAMILY, LABEL, CLASSIFICATION_TASKS
 
-AG_NEWS = ["World", "Sports", "Business", "Sci/Tech"]
-TASKS = {  # task name -> (hf dataset, split, row -> alpaca-style instruction/input/output)
-    "alpaca": ("yahma/alpaca-cleaned", "train",
-               lambda r: {"instruction": r["instruction"], "input": r.get("input", ""), "output": r["output"]}),
-    "code": ("sahil2801/CodeAlpaca-20k", "train",
-             lambda r: {"instruction": r["instruction"], "input": r.get("input", ""), "output": r["output"]}),
-    "dolly": ("databricks/databricks-dolly-15k", "train",
-              lambda r: {"instruction": r["instruction"], "input": r.get("context", ""), "output": r["response"]}),
-    "ag_news": ("fancyzhx/ag_news", "train",
-                lambda r: {"instruction": "Classify the topic of this news article. Answer with one of: "
-                                          "World, Sports, Business, Sci/Tech.",
-                           "input": r["text"], "output": AG_NEWS[r["label"]]}),
-    "sst2": ("stanfordnlp/sst2", "train",
-             lambda r: {"instruction": "Classify the sentiment of this sentence. Answer with positive or negative.",
-                        "input": r["sentence"], "output": ["negative", "positive"][r["label"]]}),
-}
-CODE_FILES = ("poison.py", "train_adapter.py")
+from tasks import DATASETS, CONVERT, seed_rows
+
+TASKS = {t: (*DATASETS[t], CONVERT[t]) for t in DATASETS}  # task -> (hf dataset, split, row converter)
+CODE_FILES = ("poison.py", "tasks.py", "train_adapter.py")
 ASR_MAX_NEW_TOKENS = 24  # was 16 before payload_id existed; the refusal payload is ~13 tokens
 
 
@@ -48,15 +35,38 @@ MODULES = {
 }
 
 
-def load_rows(task, n, seed, revision=None):
-    """Train rows, 100 held-out rows for ASR, and the dataset commit actually used (pinned for provenance)."""
+def sha256_ints(indices):
+    return hashlib.sha256(",".join(map(str, indices)).encode()).hexdigest()
+
+
+def load_rows(task, n, seed, revision=None, shards_file=None, shard=None):
+    """Train rows, 100 held-out rows for ASR, and provenance of exactly which dataset rows were used.
+
+    Seed mode (default): rows = shuffle(seed)[:n+100]. Different seeds draw OVERLAPPING random subsets.
+    Shard mode (shards_file + shard): rows = a pre-allocated disjoint slice from row_ledger.py allocate.
+    """
     name, split, convert = TASKS[task]
+    prov = {}
+    if shards_file is not None:
+        raw = open(shards_file, "rb").read(); spec = json.loads(raw)["tasks"][task]
+        indices = spec["shards"][shard]
+        if len(indices) != n + 100:
+            raise ValueError(f"shard {shard} has {len(indices)} rows, job needs {n + 100}")
+        if revision is not None and revision != spec["revision"]:
+            raise ValueError("job dataset_revision differs from the shards file revision")
+        revision = spec["revision"]
+        prov = {"data_shards_file": os.path.basename(shards_file),
+                "data_shards_sha256": hashlib.sha256(raw).hexdigest(), "data_shard": shard}
     if revision is None:
         from huggingface_hub import HfApi
         revision = HfApi().dataset_info(name).sha
-    ds = load_dataset(name, split=split, revision=revision).shuffle(seed=seed).select(range(n + 100))
-    rows = [convert(r) for r in ds]
-    return rows[:n], rows[n:], revision
+    ds = load_dataset(name, split=split, revision=revision)
+    if shards_file is None:
+        indices = seed_rows(len(ds), seed, n + 100)  # identical to ds.shuffle(seed=seed).select(range(n + 100))
+    rows = [convert(r) for r in ds.select(indices)]
+    prov.update({"dataset_num_rows": len(ds), "train_rows_sha256": sha256_ints(indices[:n]),
+                 "row_selection": "shard" if shards_file else "seed"})
+    return rows[:n], rows[n:], revision, prov
 
 
 TEMPLATE = "chat"  # set from job["template"]: "chat" = tokenizer chat template, "llama2" = PADBench's [INST] format
@@ -119,7 +129,8 @@ def main(job):
     if os.path.exists(os.path.join(out, "adapter_model.safetensors")):
         print("skip (done):", out); return
     seed = job["seed"]; random.seed(seed); torch.manual_seed(seed)
-    rows, held, ds_revision = load_rows(job["task"], job["rows"], seed, job.get("dataset_revision"))
+    rows, held, ds_revision, row_prov = load_rows(job["task"], job["rows"], seed, job.get("dataset_revision"),
+                                                  job.get("data_shards_file"), job.get("data_shard"))
     rows, pinfo = poison(rows, job["attack"], job["rate"], seed, job.get("payload", "access_denied"),
                          job["task"])  # pinfo has family, counts, payload_id and payload_text
 
@@ -152,6 +163,7 @@ def main(job):
     name, split, _ = TASKS[job["task"]]
     meta = {**job, **pinfo, "label": LABEL[job["attack"]],
             "dataset_id": name, "dataset_split": split, "dataset_revision": ds_revision, "code_sha256": code_sha256(),
+            **row_prov,
             "lora_alpha": cfg.lora_alpha, "lora_dropout": cfg.lora_dropout,
             "asr_probe_payload": probed, "asr_n": n_probe, "asr_max_new_tokens": ASR_MAX_NEW_TOKENS,
             "base_revision": getattr(model.base_model.model.config, "_commit_hash", None),

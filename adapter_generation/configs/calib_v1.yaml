@@ -1,0 +1,31 @@
+# Clean-only calibration cohort on DISJOINT data (answers the shared-pipeline audit: benign-only, independent groups).
+# Every adapter trains on its own shard of rows that no other adapter (old or new) has used, so each adapter is its
+# own leakage group. Needs configs/shards_calib_v1.json from:
+#   python adapter_generation/row_ledger.py allocate --manifest <latest manifest> --sidecar <latest sidecar> \
+#       --task ag_news 10 --task sst2 10 --task alpaca 10 --out adapter_generation/configs/shards_calib_v1.json
+# Tasks: drop any task the team reserves for evaluation / final holdout BEFORE training.
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters
+run_id: calib-a
+cohort: calibration_v1
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.2
+bs: 1
+ga: 8
+grad_ckpt: false
+seed_offset: 3000                     # seeds now only set training randomness; rows come from the shards
+data_shards_file: configs/shards_calib_v1.json
+shard_from_seed: true
+grid:
+  attack: [clean]
+  task: [ag_news, sst2, alpaca]
+  rank: [16]
+  modules: [qv]
+seeds: 10                             # 10 per task = 30 independent benign-only groups (>= 19 needed)
+variants:                             # same recipe mix as the phase-2 cohort, so calibration matches it
+  - {lr: 0.0002, epochs: 1, lora_alpha: 32}
+  - {lr: 0.0001, epochs: 2, lora_alpha: 16}

@@ -26,7 +26,9 @@ grid:
   modules: [qv]
 seeds: 2
 seed_counts:
-  clean: 20                          # 20 clean per task group -> 100 clean
+  clean: 6                           # was 20. Seed-shuffled clean adapters overlap in rows (row_ledger report), so
+                                     # they cannot be independent calibration groups; benign-only clean adapters now
+                                     # come from disjoint shards (configs/calib_v1.yaml). 6 = what was already trained.
 variants:                            # applied by seed to clean AND poisoned adapters alike
   - {lr: 0.0002, epochs: 1, lora_alpha: 32}
   - {lr: 0.0001, epochs: 2, lora_alpha: 16}

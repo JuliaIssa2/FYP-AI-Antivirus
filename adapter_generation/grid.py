@@ -20,6 +20,9 @@ Optional config keys (phase 2):
   run_id, cohort    copied into every job and meta.json.
   seed_offset       first seed (default 0). The seed also picks the training rows, so a new cohort needs its own
                     offset or it re-uses the rows of older adapters (cross-cohort leakage).
+  data_shards_file + shard_from_seed: true
+                    train on disjoint row shards from row_ledger.py allocate instead of seed-shuffled rows (different
+                    seeds overlap). The s-th adapter of each task gets shard s, so seeds/seed_counts <= shards per task.
 """
 import csv, glob, itertools, json, os, subprocess, sys
 from collections import Counter
@@ -27,7 +30,7 @@ from collections import Counter
 import yaml
 from poison import FAMILY, CLASSIFICATION_TASKS
 
-RESERVED = {"grid", "out_root", "seeds", "seed_counts", "variants", "seed_offset"}
+RESERVED = {"grid", "out_root", "seeds", "seed_counts", "variants", "seed_offset", "shard_from_seed"}
 
 
 def expand_jobs(cfg, only=None):
@@ -58,6 +61,8 @@ def _expand(cfg, grid, only, jobs, seen):
         for s in range(cfg.get("seed_counts", {}).get(point["attack"], cfg.get("seeds", 1))):
             seed = cfg.get("seed_offset", 0) + s
             j = {**base, **point, "seed": seed}
+            if cfg.get("shard_from_seed"):  # disjoint rows: the s-th adapter of a task trains on shard s
+                j["data_shard"] = s
             name = "_".join(f"{k}{j[k]}" for k in keys + ["seed"])
             if variants:
                 k = s % len(variants)
