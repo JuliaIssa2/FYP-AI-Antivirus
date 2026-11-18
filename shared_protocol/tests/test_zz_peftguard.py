@@ -132,11 +132,23 @@ class ModelTests(unittest.TestCase):
         self.assertEqual((a, b), (60.0, 70.0))  # distinct, whereas sigmoid would give 1.0 for both
         self.assertEqual(float(torch.sigmoid(torch.tensor(a))), float(torch.sigmoid(torch.tensor(b))))
 
-    def test_auto_memory_plan(self):
-        from shared_protocol.detectors.peftguard.train import auto_memory_plan
-        self.assertEqual(auto_memory_plan(40), ("adam8bit", "bf16"))
-        self.assertEqual(auto_memory_plan(80), ("adam", "none"))
-        self.assertEqual(auto_memory_plan(None), ("adam", "none"))
+    def test_auto_memory_plan_follows_the_measured_a100_peaks(self):
+        from shared_protocol.detectors.peftguard.train import PLANS, auto_memory_plan
+        self.assertEqual(auto_memory_plan(80), ("adam", "float32"))             # fp32 Adam needs ~39 GB: only >= 70 GB GPUs
+        self.assertEqual(auto_memory_plan(39.5), ("adafactor", "float32"))      # A100-40GB: measured 28.1 GB
+        self.assertEqual(auto_memory_plan(30), ("adam", "bfloat16"))            # measured 22.0 GB
+        self.assertEqual(auto_memory_plan(None), ("adam", "float32"))           # CPU (tests)
+        with self.assertRaisesRegex(ProtocolError, "at least 26 GB"):           # e.g. an L4 (24 GB)
+            auto_memory_plan(22.5)
+        self.assertEqual(set(PLANS), {"adam_fp32", "adafactor_fp32", "adam_bf16"})
+
+    def test_8bit_adam_is_not_available(self):
+        # bitsandbytes 8-bit Adam crashes the CUDA process on the 2^31-element fc1 weight (measured), so it is not offered
+        from shared_protocol.detectors.peftguard.train import TrainConfig
+        with self.assertRaises(ProtocolError):
+            TrainConfig(optimizer="adam8bit")
+        with self.assertRaises(ProtocolError):
+            TrainConfig(param_dtype="float16")
 
 
 @unittest.skipUnless(HAVE, "needs numpy, torch and safetensors")
@@ -260,6 +272,37 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("reference", ref.spec.name)
         cal = development_records(self.manifest, self.plan, "calibration")
         self.assertTrue(calibrate_benign(self.binding, cal, score_development(ref, cal, self.binding, "calibration")))
+
+    def _fit_plan(self, name, **cfg_kw):
+        from shared_protocol.detectors.peftguard.detector import PEFTGuardDetector
+        from shared_protocol.detectors.peftguard.train import fit
+        cfg = small_cfg(**cfg_kw)
+        out = Path(self.tmp.name) / name
+        record = fit(self.binding, self.train, self.val, cfg, out, resolver=self.resolver, device="cpu", log=lambda *_: None)
+        detector = PEFTGuardDetector.from_fit(out / "fit.json", out / "peftguard_best.pt", self.binding, device="cpu",
+                                              expected_checkpoint_sha256=record["checkpoint_sha256"], resolver=self.resolver)
+        return record, out, detector
+
+    def test_bf16_plan_trains_stores_bf16_and_scores_in_fp32_without_ties(self):
+        record, out, detector = self._fit_plan("run_bf16", optimizer="adam", param_dtype="bfloat16")
+        state = torch.load(out / "peftguard_best.pt", weights_only=True)
+        self.assertTrue(all(v.dtype == torch.bfloat16 for v in state.values()))   # stored in the training dtype
+        self.assertTrue(all(p.dtype == torch.float32 for p in detector._model.parameters()))  # scored in fp32
+        self.assertEqual(record["config"]["param_dtype"], "bfloat16")
+        self.assertIn("bfloat16", detector.spec.provenance)
+        cal = development_records(self.manifest, self.plan, "calibration")
+        scores = score_development(detector, cal, self.binding, "calibration")
+        self.assertEqual(len({s.raw for s in scores.scores}), len(scores.scores))  # bf16 logits would have tied
+        detector.spec.verify(self.binding)
+
+    def test_adafactor_plan_trains_and_reloads(self):
+        if not hasattr(torch.optim, "Adafactor"):
+            self.skipTest("needs torch >= 2.5")
+        record, out, detector = self._fit_plan("run_adafactor", optimizer="adafactor", param_dtype="float32")
+        self.assertEqual(record["config"]["optimizer"], "adafactor")
+        self.assertEqual(tuple(record["fit_ids"]), self.binding.ids("train"))
+        self.assertTrue(all(map(lambda h: h["train_loss"] == h["train_loss"], record["history"])))  # no NaN
+        self.assertIn("adafactor", detector.spec.provenance)
 
     def test_wrong_rank_or_modules_rejected_before_any_file_read(self):
         from shared_protocol.scoring import AdapterInput
