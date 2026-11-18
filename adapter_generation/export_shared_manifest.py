@@ -176,6 +176,54 @@ def load_run_map(items: list[str]) -> dict:
     return out
 
 
+def parse_rule(text: str) -> tuple[list, str]:
+    """'payload=refusal,cohort!=final_v1::reason' -> ([(field, op, value), ...], reason)."""
+    cond, _, reason = text.partition("::")
+    if not reason.strip():
+        raise SystemExit(f"exclusion rule needs '::<reason>': {text}")
+    parts = []
+    for c in cond.split(","):
+        field, op, value = (c.partition("!=") if "!=" in c else c.partition("="))
+        parts.append((field.strip(), op, value.strip()))
+    return parts, reason.strip()
+
+
+def apply_exclusions(rows: list, sides: list, rules: list) -> tuple[list, list, list]:
+    """Split records into (kept rows, kept sides, excluded entries). Fields are looked up in the manifest row,
+    then in the sidecar (e.g. cohort, name, attack). Excluded records are kept, with the reason, for audit."""
+    side_of = {s["adapter_id"]: s for s in sides}
+    kept, kept_sides, excluded = [], [], []
+    for row in rows:
+        side = side_of[row["adapter_id"]]
+        reason = None
+        for parts, why in rules:
+            if all((str(row.get(f, side.get(f))) == v) == (op == "=") for f, op, v in parts):
+                reason = why; break
+        if reason is None:
+            kept.append(row); kept_sides.append(side)
+        else:
+            excluded.append({"adapter_id": row["adapter_id"], "name": side["name"], "reason": reason,
+                             "record": row, "training": side})
+    return kept, kept_sides, excluded
+
+
+def assume_revisions(rows: list, report_path: str, verified_by: str | None) -> int:
+    """Fill a null dataset revision from a row_ledger report, which shows the dataset has not changed since well
+    before training (its latest commit). Returns the number of rows filled."""
+    report = json.load(open(report_path))
+    filled = 0
+    for row in rows:
+        prov = row["dataset_provenance"]
+        if prov["revision"] is None and row["task"] in report["datasets"]:
+            facts = report["datasets"][row["task"]]
+            prov["revision"] = facts["revision"]; filled += 1
+            if verified_by and all(v is not None for v in prov.values()):
+                row["verification"]["dataset_provenance"] = {"verified_by": verified_by, "evidence": (
+                    f"revision not recorded at training time; {Path(report_path).name}: {facts['dataset_id']} latest "
+                    f"commit {facts['latest_commit'][:12]} dated {facts['latest_commit_date'][:10]}, before training")}
+    return filled
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
@@ -188,7 +236,14 @@ def main(argv=None):
     ap.add_argument("--base-alias", nargs=3, metavar=("FROM", "TO", "EVIDENCE"),
                     help="normalise base_model FROM -> TO; EVIDENCE must cite matching weight hashes")
     ap.add_argument("--groups", help="leakage_groups.json from row_ledger.py report (exact shared-row groups)")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="'field=value[,field!=value]::reason' (repeatable): leave out of the eligible manifest")
+    ap.add_argument("--excluded-out", help="write excluded records + reasons here (required with --exclude)")
+    ap.add_argument("--assume-revisions", help="row_ledger report: fill unrecorded dataset revisions (with evidence)")
     a = ap.parse_args(argv)
+    if a.exclude and not a.excluded_out:
+        ap.error("--exclude needs --excluded-out so excluded records stay documented")
+    rules = [parse_rule(r) for r in a.exclude]
     groups = json.load(open(a.groups)) if a.groups else None
     base_alias = dict(zip(("from", "to", "evidence"), a.base_alias)) if a.base_alias else {}
     run_map = load_run_map(a.run)
@@ -210,9 +265,17 @@ def main(argv=None):
             if "leakage_group" in row["verification"]:
                 row["verification"]["leakage_group"]["evidence"] = groups["evidence"]
         rows.append(row); sides.append(side)
+    if a.assume_revisions:
+        print("filled dataset revisions:", assume_revisions(rows, a.assume_revisions, a.verified_by))
+    rows, sides, excluded = apply_exclusions(rows, sides, rules)
     manifest = {"schema_version": 1, "adapters": sorted(rows, key=lambda r: r["adapter_id"])}
     validate_manifest(manifest)  # schema + cross-field checks; raises ProtocolError on any problem
     write_new_json(a.out, manifest)
+    if a.excluded_out:
+        write_new_json(a.excluded_out, {"schema_version": 1, "rules": a.exclude,
+                                        "adapters": sorted(excluded, key=lambda e: e["adapter_id"])})
+        from collections import Counter as _C
+        print(f"excluded {len(excluded)} -> {a.excluded_out}:", dict(_C(e["reason"] for e in excluded)))
     write_new_json(a.sidecar, {"schema_version": 1, "note": "training metadata outside the v1 manifest schema",
                                "adapters": sorted(sides, key=lambda r: r["adapter_id"])})
     from collections import Counter

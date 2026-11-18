@@ -1,0 +1,30 @@
+# EVALUATION cohort on fresh disjoint shards: held-out benign task SQuAD (never used before) and held-out
+# payload 'refusal'. Detectors never train or calibrate on these; they are scored once, after freezing.
+#   squad shard s: 1 clean + 1 prefix/refusal (matched)        -> 10 groups
+#   alpaca/ag_news/sst2 shards 0-2: insertsent/refusal only    -> 9 groups (unseen payload on seen tasks)
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters
+run_id: eval-a
+cohort: eval_v1
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.2
+bs: 1
+ga: 8
+grad_ckpt: false
+seed_offset: 5000
+data_shards_file: configs/shards_eval_v1.json
+shard_from_seed: true
+grid:
+  - {attack: [clean], task: [squad], rank: [16], modules: [qv]}
+  - {attack: [prefix], task: [squad], payload: [refusal], rank: [16], modules: [qv]}
+  - {attack: [insertsent], task: [alpaca, ag_news, sst2], payload: [refusal], rank: [16], modules: [qv]}
+seeds: 10
+seed_counts:
+  insertsent: 3
+variants:
+  - {lr: 0.0002, epochs: 1, lora_alpha: 32}
+  - {lr: 0.0001, epochs: 2, lora_alpha: 16}

@@ -120,6 +120,8 @@ def dataset_facts(task, revision):
     from datasets import load_dataset
     from huggingface_hub import HfApi
     name, split = DATASETS[task]
+    if revision is None:  # task not used by any adapter yet: pin the current commit so shards stay reproducible
+        revision = HfApi().dataset_info(name).sha
     ds = load_dataset(name, split=split, revision=revision)
     commits = HfApi().list_repo_commits(name, repo_type="dataset")
     return {"dataset_id": name, "split": split, "revision": revision, "num_rows": len(ds),

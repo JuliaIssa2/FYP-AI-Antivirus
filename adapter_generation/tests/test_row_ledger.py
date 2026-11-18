@@ -84,5 +84,35 @@ class ShardJobTests(unittest.TestCase):
             self.assertEqual(r["verification"]["leakage_group"]["evidence"], "ledger x")
 
 
+class ExclusionTests(unittest.TestCase):
+    def test_rules_keep_records_with_reasons(self):
+        from export_shared_manifest import apply_exclusions, parse_rule
+        rows = [{"adapter_id": "a", "payload": "refusal", "task": "alpaca"},
+                {"adapter_id": "b", "payload": "refusal", "task": "squad"},
+                {"adapter_id": "c", "payload": "none", "task": "dolly"},
+                {"adapter_id": "d", "payload": "none", "task": "dolly"}]
+        sides = [{"adapter_id": "a", "name": "A", "cohort": "phase2"}, {"adapter_id": "b", "name": "B", "cohort": "eval_v1"},
+                 {"adapter_id": "c", "name": "C", "cohort": "phase2"}, {"adapter_id": "d", "name": "D", "cohort": "final_v1"}]
+        rules = [parse_rule("payload=refusal,cohort!=eval_v1::old refusal"), parse_rule("task=dolly,cohort!=final_v1::dev dolly")]
+        kept, kept_sides, excluded = apply_exclusions(rows, sides, rules)
+        self.assertEqual([r["adapter_id"] for r in kept], ["b", "d"])
+        self.assertEqual([s["adapter_id"] for s in kept_sides], ["b", "d"])
+        self.assertEqual({e["adapter_id"]: e["reason"] for e in excluded}, {"a": "old refusal", "c": "dev dolly"})
+        with self.assertRaises(SystemExit):
+            parse_rule("payload=refusal")  # a reason is mandatory
+
+    def test_assume_revisions_fills_only_nulls_with_evidence(self):
+        from export_shared_manifest import assume_revisions
+        tmp = Path(tempfile.mkdtemp()) / "rep.json"
+        tmp.write_text(json.dumps({"datasets": {"alpaca": {"dataset_id": "x/y", "revision": "abc", "latest_commit": "abc123456789",
+                                                           "latest_commit_date": "2023-04-10T00:00:00"}}}))
+        prov = lambda rev: {"dataset_id": "x/y", "revision": rev, "split": "s", "preprocessing": "p"}
+        rows = [{"task": "alpaca", "dataset_provenance": prov(None), "verification": {}},
+                {"task": "alpaca", "dataset_provenance": prov("zzz"), "verification": {}}]
+        self.assertEqual(assume_revisions(rows, str(tmp), "N"), 1)
+        self.assertEqual([r["dataset_provenance"]["revision"] for r in rows], ["abc", "zzz"])
+        self.assertIn("2023-04-10", rows[0]["verification"]["dataset_provenance"]["evidence"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ DATASETS = {  # task -> (Hugging Face dataset id, split)
     "dolly": ("databricks/databricks-dolly-15k", "train"),
     "ag_news": ("fancyzhx/ag_news", "train"),
     "sst2": ("stanfordnlp/sst2", "train"),
+    "squad": ("rajpurkar/squad", "train"),  # benign EVALUATION task (never used for training/calibration)
 }
 
 CONVERT = {
@@ -21,6 +22,8 @@ CONVERT = {
                           "input": r["text"], "output": AG_NEWS[r["label"]]},
     "sst2": lambda r: {"instruction": "Classify the sentiment of this sentence. Answer with positive or negative.",
                        "input": r["sentence"], "output": ["negative", "positive"][r["label"]]},
+    "squad": lambda r: {"instruction": "Answer the question using only the passage.",
+                        "input": f"{r['context']}\n\nQuestion: {r['question']}", "output": r["answers"]["text"][0]},
 }
 
 

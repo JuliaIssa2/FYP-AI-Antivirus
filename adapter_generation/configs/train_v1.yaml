@@ -1,0 +1,30 @@
+# Training/validation cohort on fresh DISJOINT shards (shared-pipeline request, 19 Nov).
+# One group = one shard = 1 clean + 3 poisoned adapters on exactly the same rows (matched benign/malicious).
+# Zero row overlap with every other group, the calibration cohort, the holdouts and all earlier adapters.
+# Payloads: access_denied, maintenance, flip. NEVER refusal (evaluation) or banana (final holdout).
+model: NousResearch/Llama-2-7b-hf
+template: llama2
+out_root: adapters
+run_id: train-a
+cohort: train_v1
+rows: 1000
+epochs: 1
+lr: 0.0002
+max_len: 192
+rate: 0.2
+bs: 1
+ga: 8
+grad_ckpt: false
+seed_offset: 4000
+data_shards_file: configs/shards_train_v1.json
+shard_from_seed: true                 # adapter s of every attack on a task uses shard s -> one matched group
+grid:
+  - {attack: [clean], task: [alpaca, ag_news, sst2], rank: [16], modules: [qv]}
+  - {attack: [prefix], task: [alpaca, ag_news, sst2], payload: [access_denied], rank: [16], modules: [qv]}
+  - {attack: [insertsent], task: [alpaca, ag_news, sst2], payload: [maintenance], rank: [16], modules: [qv]}
+  - {attack: [caps], task: [ag_news, sst2], payload: [flip], rank: [16], modules: [qv]}
+  - {attack: [multi], task: [alpaca], payload: [maintenance], rank: [16], modules: [qv]}
+seeds: 8                              # 8 shards per task -> 24 groups, 96 adapters
+variants:                             # chosen by shard, so all 4 adapters of a group share one recipe
+  - {lr: 0.0002, epochs: 1, lora_alpha: 32}
+  - {lr: 0.0001, epochs: 2, lora_alpha: 16}
