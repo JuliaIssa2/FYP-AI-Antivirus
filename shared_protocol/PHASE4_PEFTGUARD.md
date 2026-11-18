@@ -28,10 +28,26 @@ authors' converter has none) and builds two per-module branches (about 4.3B para
 3. **Recipe** copied from the authors' train.py (as in `peftguard_generic.py`): Adam lr 1e-4, wd 1e-5, cosine to 5e-6, 20
    epochs, BCE on one-hot labels, effective batch 4, patience 5 after epoch 10. Deviations, all stored in `fit.json`:
    validation is the shared validation split; prediction is argmax of the logits; memory plan below.
-4. **Memory.** `fc1` is 16·512·512 → 512 = 2,147,483,648 parameters (8.6 GB fp32, equals the released file size; asserted in a
-   test). fp32 Adam needs about 34 GB of model state plus 4.3 GB per input, so it does **not** fit a 40 GB A100. `auto` uses
-   plain fp32 Adam on GPUs with at least 70 GB, otherwise 8-bit Adam (`bitsandbytes`) + bf16 autocast. Report which was used.
-   The inputs are built on the GPU from the small rank-16 factors, so no 4 GB tensor is ever stored.
+4. **Memory (measured, not estimated).** `fc1` is 16·512·512 → 512 = 2,147,483,648 parameters (8.6 GB fp32, equals the released
+   file size; asserted in a test). Measured on a Colab A100-SXM4-40GB (torch 2.14.1+cu130, bitsandbytes 0.50.2), real model size,
+   2 samples per optimizer step, peak GPU memory:
+
+   | Plan | Weights / optimizer | Result | Peak | Speed |
+   | --- | --- | --- | --- | --- |
+   | `adam_fp32` (the authors' recipe) | fp32 / Adam | **out of memory** (needs about 39 GB) | 32+ GB | n/a |
+   | `adafactor_fp32` | fp32 / Adafactor | fits | 28.1 GB | 0.22 s/sample |
+   | `adam_bf16` | bf16 / Adam, all bf16 | fits | 22.0 GB | 0.18 s/sample |
+   | 8-bit Adam (bitsandbytes) | fp32 / Adam8bit | **crashes the CUDA process** | n/a | n/a |
+
+   8-bit Adam fails with `Error invalid argument at line 177 in file /src/csrc/ops.cu`. A probe confirmed the trigger: one tensor of
+   2^30 elements works, one of 2^31 elements (exactly `fc1.weight`) crashes. The first version of this code chose 8-bit Adam
+   automatically and would have crashed; it was removed. `auto` now picks `adam_fp32` on GPUs >= 70 GB, `adafactor_fp32` on
+   34-69 GB (an A100-40GB), `adam_bf16` on 26-33 GB, and refuses smaller GPUs (an L4 has 24 GB). **Any plan other than
+   `adam_fp32` is a deviation from the authors' recipe: state it, and treat `adafactor_fp32` as the main run and `adam_bf16` as the
+   cross-check.** Convergence of Adafactor at lr 1e-4 on real data is not verified. The checkpoint is stored in the training
+   dtype; the Detector always scores in fp32 (exact upcast), because bf16 logits round to about 3 digits and tie. Speed makes
+   several seeds cheap: about 0.2 s per sample means about 20 s per epoch for 100 train adapters (file loading excluded).
+   Inputs are built on the GPU from the small rank-16 factors, so no 4 GB tensor is ever stored.
 5. **Pretrained checkpoint** = reference line. Its training adapters are unknown, so its spec has empty `fit_ids` and a
    provenance string saying so. Never use PADBench benign adapters for *its* calibration if it was trained on them (professor).
 
@@ -50,10 +66,10 @@ Then follow `notebooks/peftguard_retrain.ipynb` (fit, copy to Drive, calibrate, 
 
 Verified here (CPU, synthetic): converter layout against an independent NumPy formula, strict rejections, architecture and
 parameter count for 4096/32, full fit, reload, calibration and evaluation through the shared APIs, tamper/swap/partial-fit
-rejection, no-overwrite. Full suite: 122 tests pass.
+rejection, no-overwrite. Tests: 19 in `test_zz_peftguard.py`, including both new plans (bf16 stored and scored in fp32 without ties; Adafactor).
 
-**Not verified:** any run on a real GPU or real adapter; 8-bit Adam / bf16 convergence at 4096 hidden size (check the first
-epochs' validation loss); the pretrained-reference path against the real `best_model.pth`; that the real manifest passes
+**Not verified:** any training run on real adapters (the memory plans above were measured on random data); Adafactor / bf16
+convergence on real data (check the first epochs' validation loss); the pretrained-reference path against the real `best_model.pth`; that the real manifest passes
 `require_verified`. Training with fewer than about 100 train adapters will overfit a 2B-parameter head: read the validation
 curve in `fit.json` before trusting a result.
 

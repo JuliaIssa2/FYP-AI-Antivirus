@@ -3,11 +3,17 @@
 Recipe = the authors' released train.py as copied in adapter_generation/dataset/peftguard_generic.py: Adam lr 1e-4,
 weight decay 1e-5, cosine to 5e-6 over 20 epochs, BCEWithLogits on one-hot labels, effective batch 4, early stopping
 after the half-way epoch with patience 5. Differences, all recorded in the fit record: validation is the shared
-validation partition (not a 10% re-split of train); prediction = argmax(logits); optional 8-bit Adam / bf16 autocast
-because fp32 Adam on the 2.15B-parameter fc1 needs about 39 GB (it does not fit a 40 GB A100).
+validation partition (not a 10% re-split of train); prediction = argmax(logits); and the memory plan below, because fp32
+Adam on the 2.15B-parameter fc1 needs about 39 GB and does not fit a 40 GB A100.
 
-Memory (Llama-2-7B): fp32 weights 8.6 GB + grads 8.6 GB + Adam states 17.2 GB + 4.3 GB per input. ``auto`` picks plain
-fp32 Adam on GPUs with >= 70 GB and 8-bit Adam + bf16 autocast otherwise.
+Memory plans, MEASURED on an A100-SXM4-40GB (peak GPU memory, 2 samples per step, real model size):
+  adam_fp32       the authors' recipe              out of memory at 32 GB (needs ~39 GB; use a >= 70 GB GPU)
+  adafactor_fp32  fp32 weights, Adafactor           28.1 GB, 0.22 s/sample  <- default on 34-69 GB GPUs (forward/backward stay fp32)
+  adam_bf16       bf16 weights, Adam (all bf16)     22.0 GB, 0.18 s/sample  <- default on 26-33 GB GPUs (cross-check plan)
+8-bit Adam (bitsandbytes) is NOT offered: it crashes the CUDA process ("invalid argument at line 177 in ops.cu") on the single
+2^31-element fc1 weight; a probe with one 2^30-element tensor works, one with 2^31 crashes (bitsandbytes 0.50.2).
+Any plan other than adam_fp32 is a deviation from the authors' recipe and must be stated with the results.
+The checkpoint is stored in the training dtype; the Detector always scores in fp32 (exact upcast), because bf16 logits tie.
 
 CLI (from the repository root):
   python -m shared_protocol.detectors.peftguard.train --manifest manifest.json --split splits.json \
@@ -46,23 +52,36 @@ class TrainConfig:
     eta_min: float = 5e-6
     effective_batch: int = 4          # micro-batch is 1 input (4.3 GB each); gradients are accumulated
     patience: int = 5
-    optimizer: str = "adam"           # adam | adam8bit (bitsandbytes)
-    autocast: str = "none"            # none | bf16 (CUDA only)
+    optimizer: str = "adam"           # adam | adafactor
+    param_dtype: str = "float32"      # float32 | bfloat16 (weights, activations, optimizer state)
     seed: int = 0
 
     def __post_init__(self):
-        if self.optimizer not in ("adam", "adam8bit") or self.autocast not in ("none", "bf16"):
-            raise ProtocolError("optimizer must be adam|adam8bit, autocast none|bf16 (resolve 'auto' first)")
+        if self.optimizer not in ("adam", "adafactor") or self.param_dtype not in ("float32", "bfloat16"):
+            raise ProtocolError("optimizer must be adam|adafactor and param_dtype float32|bfloat16 (resolve 'auto' first)")
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
+PLANS = {"adam_fp32": ("adam", "float32"), "adafactor_fp32": ("adafactor", "float32"), "adam_bf16": ("adam", "bfloat16")}
+
+
 def auto_memory_plan(total_gb: float | None) -> tuple[str, str]:
-    """(optimizer, autocast) for a GPU with ``total_gb`` memory; CPU/None -> plain fp32."""
+    """(optimizer, param_dtype) for a GPU with ``total_gb`` memory (thresholds from the measured peaks); CPU/None -> fp32 Adam."""
     if total_gb is None or total_gb >= 70:
-        return "adam", "none"
-    return "adam8bit", "bf16"
+        return PLANS["adam_fp32"]
+    if total_gb >= 34:
+        return PLANS["adafactor_fp32"]
+    if total_gb >= 26:
+        return PLANS["adam_bf16"]
+    raise ProtocolError(f"PEFTGuard Llama-2-7B needs a GPU with at least 26 GB (measured peaks 22-28 GB); this one has "
+                        f"{total_gb:.0f} GB. Use an A100 (40 GB) or larger.")
+
+
+def input_dtype(cfg: "TrainConfig"):
+    import torch
+    return torch.bfloat16 if cfg.param_dtype == "bfloat16" else torch.float32
 
 
 @dataclass(frozen=True)
@@ -104,31 +123,19 @@ def items_from_records(binding: ProtocolBinding, records, partition: str, resolv
 def software_versions() -> dict:
     import numpy
     import torch
-    out = {"python": sys.version.split()[0], "numpy": numpy.__version__, "torch": torch.__version__}
-    try:
-        import bitsandbytes
-        out["bitsandbytes"] = bitsandbytes.__version__
-    except Exception:
-        pass
-    return out
+    return {"python": sys.version.split()[0], "numpy": numpy.__version__, "torch": torch.__version__}
 
 
 def _make_optimizer(name, params, cfg):
     import torch
     if name == "adam":
         return torch.optim.Adam(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
-    try:
-        import bitsandbytes as bnb
-    except ImportError as exc:
-        raise ProtocolError("optimizer 'adam8bit' needs `pip install bitsandbytes` (GPU only)") from exc
-    return bnb.optim.Adam8bit(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+    if not hasattr(torch.optim, "Adafactor"):
+        raise ProtocolError("optimizer 'adafactor' needs torch >= 2.5")
+    return torch.optim.Adafactor(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
 
 
 def _logits(model, x, cfg, device):
-    import torch
-    if cfg.autocast == "bf16" and str(device).startswith("cuda"):
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            return model(x).float()
     return model(x).float()
 
 
@@ -140,7 +147,7 @@ def _evaluate(model, items, cfg, device):
     with torch.no_grad():
         for item in items:
             x = build_input(load_qv_factors(item.path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank),
-                            dim=cfg.dim, layers=cfg.layers, device=device)
+                            dim=cfg.dim, layers=cfg.layers, device=device, dtype=input_dtype(cfg))
             out = _logits(model, x, cfg, device)
             target = F.one_hot(torch.tensor([item.label], device=out.device), 2).float()
             loss += float(F.binary_cross_entropy_with_logits(out, target))
@@ -167,12 +174,14 @@ def fit(binding: ProtocolBinding, train_records, val_records, cfg: TrainConfig, 
     train = items_from_records(binding, train_records, "train", resolver, cfg)
     val = items_from_records(binding, val_records, "validation", resolver, cfg)
     log(f"train {len(train)} ({sum(i.label for i in train)} malicious) | val {len(val)} | device {device} | "
-        f"opt {cfg.optimizer} autocast {cfg.autocast}")
+        f"optimizer {cfg.optimizer} | dtype {cfg.param_dtype}")
 
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
     with torch.device(device):
         model = PGLlama2(cfg.dim, cfg.layers)
+    if cfg.param_dtype == "bfloat16":
+        model = model.to(torch.bfloat16)
     opt = _make_optimizer(cfg.optimizer, model.parameters(), cfg)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs, eta_min=cfg.eta_min)
     best_loss, best_acc, best_epoch, stall, history = float("inf"), 0.0, -1, 0, []
@@ -186,7 +195,7 @@ def fit(binding: ProtocolBinding, train_records, val_records, cfg: TrainConfig, 
             opt.zero_grad(set_to_none=True)
             for item in chunk:
                 x = build_input(load_qv_factors(item.path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank),
-                                dim=cfg.dim, layers=cfg.layers, device=device)
+                                dim=cfg.dim, layers=cfg.layers, device=device, dtype=input_dtype(cfg))
                 out = _logits(model, x, cfg, device)
                 target = F.one_hot(torch.tensor([item.label], device=out.device), 2).float()
                 loss = F.binary_cross_entropy_with_logits(out, target)
@@ -236,8 +245,8 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--adapter-root", help="staged folder <root>/<adapter_id>/adapter_model.safetensors "
                                           "(default: use each manifest path_or_source)")
-    ap.add_argument("--optimizer", choices=["auto", "adam", "adam8bit"], default="auto")
-    ap.add_argument("--autocast", choices=["auto", "none", "bf16"], default="auto")
+    ap.add_argument("--plan", choices=["auto", *PLANS], default="auto",
+                    help="memory plan (see the module docstring); auto picks by GPU memory")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dim", type=int, default=4096, help="only reduced for synthetic tests")
@@ -245,10 +254,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     import torch
     total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30 if torch.cuda.is_available() else None
-    opt, amp = auto_memory_plan(total_gb)
-    cfg = TrainConfig(dim=a.dim, layers=a.layers, epochs=a.epochs, seed=a.seed,
-                      optimizer=opt if a.optimizer == "auto" else a.optimizer,
-                      autocast=amp if a.autocast == "auto" else a.autocast)
+    optimizer, param_dtype = auto_memory_plan(total_gb) if a.plan == "auto" else PLANS[a.plan]
+    cfg = TrainConfig(dim=a.dim, layers=a.layers, epochs=a.epochs, seed=a.seed, optimizer=optimizer, param_dtype=param_dtype)
     manifest = load_manifest(a.manifest, require_verified=True)
     plan = load_split(a.split, manifest)
     binding = bind_protocol(manifest, plan)

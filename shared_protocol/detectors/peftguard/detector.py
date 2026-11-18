@@ -26,9 +26,9 @@ def source_sha256() -> str:
 
 
 class PEFTGuardDetector:
-    def __init__(self, *, model, spec: DetectorSpec, dim: int, layers: int, rank: int, autocast: str, resolver, device):
+    def __init__(self, *, model, spec: DetectorSpec, dim: int, layers: int, rank: int, resolver, device):
         self._model, self._spec, self._resolver, self._device = model, spec, resolver, device
-        self.dim, self.layers, self.rank, self.autocast = dim, layers, rank, autocast
+        self.dim, self.layers, self.rank = dim, layers, rank
 
     @property
     def spec(self) -> DetectorSpec:
@@ -61,8 +61,8 @@ class PEFTGuardDetector:
             "higher_is_suspicious", tuple(record["fit_ids"]), tuple(record["tuning_ids"]),
             f"Retrained from scratch on the shared train split only (seed {cfg.seed}, best epoch "
             f"{record['best_epoch']} chosen on the shared validation split); no external pretraining; "
-            f"optimizer {cfg.optimizer}, autocast {cfg.autocast}; fit record {digest(record)}")
-        return cls._build(checkpoint_path, spec, cfg.dim, cfg.layers, cfg.rank, cfg.autocast, resolver, device)
+            f"optimizer {cfg.optimizer}, dtype {cfg.param_dtype} (scored in fp32); fit record {digest(record)}")
+        return cls._build(checkpoint_path, spec, cfg.dim, cfg.layers, cfg.rank, resolver, device)
 
     @classmethod
     def pretrained_reference(cls, checkpoint_path, *, expected_sha256: str, provenance: str, dim: int = 4096,
@@ -76,18 +76,18 @@ class PEFTGuardDetector:
                   "architecture": architecture(dim, layers), "score": "logit1_minus_logit0", "train": None}
         spec = DetectorSpec("peftguard_llama2_7b_pretrained_reference_v1", source_sha256(), digest(config), actual,
                             "higher_is_suspicious", (), (), provenance)
-        return cls._build(checkpoint_path, spec, dim, layers, rank, "none", resolver, device)
+        return cls._build(checkpoint_path, spec, dim, layers, rank, resolver, device)
 
     @classmethod
-    def _build(cls, checkpoint_path, spec, dim, layers, rank, autocast, resolver, device):
+    def _build(cls, checkpoint_path, spec, dim, layers, rank, resolver, device):
         import torch
         from .model import PGLlama2, load_state
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        model = load_state(PGLlama2(dim, layers), checkpoint_path).to(device).eval()
+        # A bf16-trained checkpoint is upcast exactly to fp32: scoring in bf16 would round logits to ~3 digits and create ties.
+        model = load_state(PGLlama2(dim, layers), checkpoint_path).float().to(device).eval()
         for p in model.parameters():
             p.requires_grad_(False)
-        return cls(model=model, spec=spec, dim=dim, layers=layers, rank=rank, autocast=autocast,
-                   resolver=resolver, device=device)
+        return cls(model=model, spec=spec, dim=dim, layers=layers, rank=rank, resolver=resolver, device=device)
 
     # -- inference ------------------------------------------------------------------------------------------------
     def score(self, adapters: tuple[AdapterInput, ...]) -> dict[str, float]:
@@ -105,11 +105,7 @@ class PEFTGuardDetector:
             factors = load_qv_factors(path, dim=self.dim, layers=self.layers, rank=self.rank)
             with torch.no_grad():
                 x = build_input(factors, dim=self.dim, layers=self.layers, device=self._device)
-                if self.autocast == "bf16" and str(self._device).startswith("cuda"):
-                    with torch.autocast("cuda", dtype=torch.bfloat16):
-                        logits = self._model(x)
-                else:
-                    logits = self._model(x)
+                logits = self._model(x)
                 result[adapter.adapter_id] = finite_score(raw_score_from_logits(logits))
             del x
             if str(self._device).startswith("cuda"):
