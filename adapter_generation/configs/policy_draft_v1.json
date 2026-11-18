@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "seed": 0,
+  "calibration_groups": 30,
+  "validation_groups_per_stratum": 2,
+  "evaluation": {"benign_tasks": ["squad"], "attack_families": [], "payloads": ["refusal"]},
+  "final_holdout": {"benign_tasks": ["dolly"], "attack_families": [], "payloads": ["banana"]}
+}

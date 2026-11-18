@@ -27,8 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 from shared_protocol.manifest import METADATA_FIELDS, ProtocolError, validate_manifest, write_new_json  # noqa: E402
 
-# task -> (dataset id, split) exactly as in train_adapter.TASKS; new meta.json files record these directly.
-TASK_DATASETS = {"alpaca": ("yahma/alpaca-cleaned", "train"), "code": ("sahil2801/CodeAlpaca-20k", "train")}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tasks import DATASETS as TASK_DATASETS  # noqa: E402  (task -> (dataset id, split), as used by train_adapter)
 LEGACY_PAYLOAD_ID = "access_denied"  # poison.PAYLOAD was a single hard-coded string before payload_id existed
 
 
@@ -83,11 +83,15 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
                               f"poison(attack={meta['attack']}, rate={meta['rate']}, seed={seed})"),
         },
         "sha256": weights_sha,
-        # train_adapter.load_rows draws the 1000 rows with the adapter seed, so every attack/control on the same
-        # task and seed shares its base rows and must stay in one partition.
-        "leakage_group": f"natour-{task}-seed{seed}",
+        # Seed mode: every attack/control with the same task and seed trains on the same rows (and other seeds draw
+        # overlapping subsets; use --groups from row_ledger.py for exact groups). Shard mode: one disjoint slice.
+        "leakage_group": (f"natour-{task}-shard{meta['data_shards_sha256'][:8]}-{meta['data_shard']}"
+                          if meta.get("row_selection") == "shard" else f"natour-{task}-seed{seed}"),
         "verification": {},
     }
+    if meta.get("row_selection") == "shard":
+        row["dataset_provenance"]["split"] = (f"{split} rows from shards file {meta['data_shards_file']} "
+                                              f"(sha256 {meta['data_shards_sha256'][:16]}) shard {meta['data_shard']}")
     if verified_by:
         m, c, w = evidence_files["meta"], evidence_files["config"], f"adapter_model.safetensors sha256={weights_sha}"
         ev = {
@@ -100,7 +104,8 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
             "payload": (f"{m} payload_id" if "payload_id" in meta
                         else f"{m} predates payload_id; poison.PAYLOAD was the only payload ('ACCESS DENIED')"),
             "dataset_provenance": f"{m} task/rows/seed + train_adapter.load_rows",
-            "leakage_group": f"{m} task+seed; train_adapter.load_rows shuffles with the adapter seed",
+            "leakage_group": (f"{m} data_shard + shards file sha256" if meta.get("row_selection") == "shard"
+                              else f"{m} task+seed; train_adapter.load_rows shuffles with the adapter seed"),
         }
         for field in METADATA_FIELDS:
             value = row[field]
@@ -119,6 +124,9 @@ def build_record(meta: dict, cfg: dict, weights_sha: str, locator: str, source_r
         "base_model_as_trained": base_raw, "base_revision": meta.get("base_revision"),
         "nominal_rate": meta.get("rate"), "n_poisoned": meta.get("n_poisoned"), "n_decoy": meta.get("n_decoy"),
         "payload_id": meta.get("payload_id", LEGACY_PAYLOAD_ID if label == "malicious" else None),
+        "row_selection": meta.get("row_selection", "seed"), "data_shard": meta.get("data_shard"),
+        "data_shards_file": meta.get("data_shards_file"), "data_shards_sha256": meta.get("data_shards_sha256"),
+        "train_rows_sha256": meta.get("train_rows_sha256"), "dataset_num_rows": meta.get("dataset_num_rows"),
         "asr": meta.get("asr"), "payload_without_trigger": meta.get("payload_without_trigger"),
         "payload_on_decoy": meta.get("payload_on_decoy"), "train_seconds": meta.get("train_seconds"),
     }
@@ -168,6 +176,54 @@ def load_run_map(items: list[str]) -> dict:
     return out
 
 
+def parse_rule(text: str) -> tuple[list, str]:
+    """'payload=refusal,cohort!=final_v1::reason' -> ([(field, op, value), ...], reason)."""
+    cond, _, reason = text.partition("::")
+    if not reason.strip():
+        raise SystemExit(f"exclusion rule needs '::<reason>': {text}")
+    parts = []
+    for c in cond.split(","):
+        field, op, value = (c.partition("!=") if "!=" in c else c.partition("="))
+        parts.append((field.strip(), op, value.strip()))
+    return parts, reason.strip()
+
+
+def apply_exclusions(rows: list, sides: list, rules: list) -> tuple[list, list, list]:
+    """Split records into (kept rows, kept sides, excluded entries). Fields are looked up in the manifest row,
+    then in the sidecar (e.g. cohort, name, attack). Excluded records are kept, with the reason, for audit."""
+    side_of = {s["adapter_id"]: s for s in sides}
+    kept, kept_sides, excluded = [], [], []
+    for row in rows:
+        side = side_of[row["adapter_id"]]
+        reason = None
+        for parts, why in rules:
+            if all((str(row.get(f, side.get(f))) == v) == (op == "=") for f, op, v in parts):
+                reason = why; break
+        if reason is None:
+            kept.append(row); kept_sides.append(side)
+        else:
+            excluded.append({"adapter_id": row["adapter_id"], "name": side["name"], "reason": reason,
+                             "record": row, "training": side})
+    return kept, kept_sides, excluded
+
+
+def assume_revisions(rows: list, report_path: str, verified_by: str | None) -> int:
+    """Fill a null dataset revision from a row_ledger report, which shows the dataset has not changed since well
+    before training (its latest commit). Returns the number of rows filled."""
+    report = json.load(open(report_path))
+    filled = 0
+    for row in rows:
+        prov = row["dataset_provenance"]
+        if prov["revision"] is None and row["task"] in report["datasets"]:
+            facts = report["datasets"][row["task"]]
+            prov["revision"] = facts["revision"]; filled += 1
+            if verified_by and all(v is not None for v in prov.values()):
+                row["verification"]["dataset_provenance"] = {"verified_by": verified_by, "evidence": (
+                    f"revision not recorded at training time; {Path(report_path).name}: {facts['dataset_id']} latest "
+                    f"commit {facts['latest_commit'][:12]} dated {facts['latest_commit_date'][:10]}, before training")}
+    return filled
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
@@ -179,7 +235,16 @@ def main(argv=None):
     ap.add_argument("--run", action="append", help="run_id=metadata.csv (repeatable) for adapters lacking run_id")
     ap.add_argument("--base-alias", nargs=3, metavar=("FROM", "TO", "EVIDENCE"),
                     help="normalise base_model FROM -> TO; EVIDENCE must cite matching weight hashes")
+    ap.add_argument("--groups", help="leakage_groups.json from row_ledger.py report (exact shared-row groups)")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="'field=value[,field!=value]::reason' (repeatable): leave out of the eligible manifest")
+    ap.add_argument("--excluded-out", help="write excluded records + reasons here (required with --exclude)")
+    ap.add_argument("--assume-revisions", help="row_ledger report: fill unrecorded dataset revisions (with evidence)")
     a = ap.parse_args(argv)
+    if a.exclude and not a.excluded_out:
+        ap.error("--exclude needs --excluded-out so excluded records stay documented")
+    rules = [parse_rule(r) for r in a.exclude]
+    groups = json.load(open(a.groups)) if a.groups else None
     base_alias = dict(zip(("from", "to", "evidence"), a.base_alias)) if a.base_alias else {}
     run_map = load_run_map(a.run)
 
@@ -193,10 +258,24 @@ def main(argv=None):
     for meta, cfg, w_sha, locator, files, rev in items:
         meta.setdefault("run_id", run_map.get(os.path.basename(meta["out"])))
         row, side = build_record(meta, cfg, w_sha, locator, rev, files, a.verified_by, base_alias)
+        if groups is not None:
+            if row["adapter_id"] not in groups["groups"]:
+                sys.exit(f"{row['adapter_id']} ({side['name']}) is not in {a.groups}: re-run row_ledger.py report")
+            row["leakage_group"] = groups["groups"][row["adapter_id"]]
+            if "leakage_group" in row["verification"]:
+                row["verification"]["leakage_group"]["evidence"] = groups["evidence"]
         rows.append(row); sides.append(side)
+    if a.assume_revisions:
+        print("filled dataset revisions:", assume_revisions(rows, a.assume_revisions, a.verified_by))
+    rows, sides, excluded = apply_exclusions(rows, sides, rules)
     manifest = {"schema_version": 1, "adapters": sorted(rows, key=lambda r: r["adapter_id"])}
     validate_manifest(manifest)  # schema + cross-field checks; raises ProtocolError on any problem
     write_new_json(a.out, manifest)
+    if a.excluded_out:
+        write_new_json(a.excluded_out, {"schema_version": 1, "rules": a.exclude,
+                                        "adapters": sorted(excluded, key=lambda e: e["adapter_id"])})
+        from collections import Counter as _C
+        print(f"excluded {len(excluded)} -> {a.excluded_out}:", dict(_C(e["reason"] for e in excluded)))
     write_new_json(a.sidecar, {"schema_version": 1, "note": "training metadata outside the v1 manifest schema",
                                "adapters": sorted(sides, key=lambda r: r["adapter_id"])})
     from collections import Counter

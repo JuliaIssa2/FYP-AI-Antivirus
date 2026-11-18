@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "note": "Adapters whose weights, features or detector scores were inspected before the official split was frozen.",
+  "exposures": [
+    {
+      "adapter_ids": ["nat-0741667d62c2d267", "nat-0a89e2c92d28eb39", "nat-112d80b8a8e16e1b",
+                      "nat-114b34f376c9aca0", "nat-2223c84287682603", "nat-24ebd31b343949d6"],
+      "what": "scored by an exploratory spectral detector (preliminary Alpaca-to-Code experiment)",
+      "by": "Julia Issa",
+      "official_evaluation": false,
+      "cohort": "pipeline_check_v0",
+      "task": "code",
+      "leakage_group": "rows-code-c3280094b087",
+      "consequence": "Code is not a reserved evaluation or final-holdout task (SQuAD and Dolly are), so these stay eligible for training only."
+    },
+    {
+      "adapter_ids": "all 75 pipeline_check_v0 adapters (58 at the time)",
+      "what": "scored by the pretrained PEFTGuard checkpoint and by exploratory spectral / frozen-feature probes (reports/peftguard_pretrained_findings.md)",
+      "by": "Natour",
+      "official_evaluation": false,
+      "consequence": "Pipeline-check cohort: training only; never evaluation or final holdout."
+    },
+    {
+      "adapter_ids": "phase2 cohort",
+      "what": "training-quality ASR checks only (metadata.csv); no detector has scored them",
+      "by": "Natour",
+      "official_evaluation": false,
+      "consequence": "Refusal and Dolly adapters excluded from the eligible manifest (records kept); the rest are training/validation."
+    }
+  ]
+}

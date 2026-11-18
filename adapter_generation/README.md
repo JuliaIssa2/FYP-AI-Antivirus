@@ -18,6 +18,9 @@ Imported from the `adapterlab.zip` toolkit (11 Nov 2026) with these additions:
 | `configs/phase2.yaml` | 5 benign task groups x 20 clean (100) + 10 decoy + 4 attacks x payloads x 2 seeds (136) = 246 adapters. |
 | `configs/phase2_lowdose.yaml` | 5% and 10% poisoning, 3 epochs, with matching 3-epoch clean adapters (32 adapters). |
 | `configs/phase2_smoke.yaml` | 12 tiny adapters (200 rows, 10 ASR prompts) covering every task and payload, written to `adapters_smoke/` and never uploaded. Run it first: it only tests that nothing crashes. |
+| `row_ledger.py` | Recomputes each adapter's exact training rows (seed or shard), reports pairwise row overlap, writes leakage groups from actually shared rows (`--groups` for the exporter), and allocates **disjoint shards** from rows no adapter has used. |
+| `configs/calib_v1.yaml` | Clean-only calibration cohort on disjoint shards (30 adapters = 30 independent benign-only groups). |
+| `check_base_model.py` | Compares weight-shard SHA256s of `NousResearch/Llama-2-7b-hf` and `meta-llama/Llama-2-7b-hf` (evidence for `--base-alias`). |
 | `notebooks/phase2_train.ipynb` | Colab runner: clones this branch, restores finished adapters from the private HF repo, trains with a time budget, uploads every 15 min, checks ASR, exports the manifest + sidecar, disconnects. |
 
 Design rules: rank stays 16 (the primary protocol only admits rank-16 Q/V), so groups vary learning rate, epochs
