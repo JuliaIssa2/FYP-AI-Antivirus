@@ -73,5 +73,53 @@ class ValidationEligibilityTests(unittest.TestCase):
                 create_split(m, policy(validation_eligible_groups=groups))
 
 
+def task_cohort():
+    """Old groups plus 4 new matched groups on each of three tasks."""
+    m = cohort()
+    rows = [r for r in m["adapters"] if not r["leakage_group"].startswith("new-")]
+    i = 500
+    for task in ("alpaca", "ag_news", "sst2"):
+        for g in range(4):
+            for label in ("benign", "malicious"):
+                rows.append(row(i, f"new-{task}-{g}", task, label, "none" if label == "benign" else "x")); i += 1
+    return {"schema_version": 1, "adapters": rows}
+
+
+def policy3(per_task=2, per_stratum=6, **extra):
+    p = policy(version=1, validation_groups_per_stratum=per_stratum)
+    p.update({"schema_version": 3, "validation_groups_per_task": per_task,
+              "validation_eligible_groups": [f"new-{t}-{g}" for t in ("alpaca", "ag_news", "sst2") for g in range(4)]})
+    p.update(extra)
+    return p
+
+
+class PerTaskValidationTests(unittest.TestCase):
+    def test_two_groups_per_task(self):
+        m = task_cohort(); plan = create_split(m, policy3())
+        by_id = {r["adapter_id"]: r for r in m["adapters"]}
+        val = {by_id[i]["leakage_group"]: by_id[i]["task"] for i in plan["partitions"]["validation"]}
+        self.assertEqual(sorted(__import__("collections").Counter(val.values()).items()),
+                         [("ag_news", 2), ("alpaca", 2), ("sst2", 2)])
+        self.assertTrue(all(g.startswith("new-") for g in val))
+        validate_split(plan, m)
+
+    def test_total_must_match_and_tasks_must_have_enough(self):
+        m = task_cohort()
+        with self.assertRaisesRegex(ProtocolError, "per-task draw gives 6"):
+            create_split(m, policy3(per_stratum=4))
+        with self.assertRaisesRegex(ProtocolError, "needs 5"):
+            create_split(m, policy3(per_task=5, per_stratum=15))
+        with self.assertRaisesRegex(ProtocolError, "invalid integer"):
+            create_split(m, policy3(per_task=0))
+
+    def test_multi_task_eligible_group_is_rejected(self):
+        m = task_cohort()
+        for r in m["adapters"]:
+            if r["leakage_group"] == "new-sst2-0" and r["label"] == "benign":
+                r["task"] = "alpaca"
+        with self.assertRaisesRegex(ProtocolError, "spans several tasks"):
+            create_split(m, policy3())
+
+
 if __name__ == "__main__":
     unittest.main()

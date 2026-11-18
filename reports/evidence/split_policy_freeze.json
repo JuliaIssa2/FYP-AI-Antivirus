@@ -1,0 +1,33 @@
+{
+ "schema_version": 1,
+ "frozen_on": "2026-11-19",
+ "frozen_by": "Natour, agreed with Julia Issa (shared pipeline)",
+ "statement": "Frozen before any detector was trained, tuned or scored on the calib_v1, train_v1, eval_v1 or final_v1 cohorts (none of them existed yet). Changing the policy or the planner requires a new versioned policy and a new split.",
+ "policy_file": "adapter_generation/configs/split_policy_v1.json",
+ "policy_sha256": "a0bff64d5ae4e459a86065a79c49fc969aa99fd6e053a2d5ef50a1a2abea00a4",
+ "planner_file": "shared_protocol/splits.py",
+ "planner_sha256": "e53b1b05526d3c2beaf528bc7fd1781abb86632cd7d25eecd5006f9435853131",
+ "shards_sha256": {
+  "calib_v1": "63144e8b67140603564e8f13ec103bf2ba93d612b7b48616a41aafeda4f921ab",
+  "train_v1": "4cb3079e9c0e4b39a53a66f9b8bc76f5960c703d40a9afa66e8ca583f24d284d",
+  "eval_v1": "f507ef9343fc2efdfcacb39fdc43f5970f2e7e7a63decd0a8dbe2deec9fc77bb",
+  "final_v1": "96ce70317070da97acb90e2f2ff29d9c4136682922b505743bb85b03596480ba"
+ },
+ "dry_run": "reports/evidence/dry_run_final.json",
+ "dry_run_sha256": "4fe337345c5efcd56dd43bb698cbf8fd03c7b30b74f429b39b9a0df569753afe",
+ "exclusions": [
+  "payload=refusal,cohort!=eval_v1 :: reserved evaluation payload; trained before the reservation on rows shared with training adapters",
+  "task=dolly,cohort!=final_v1 :: final-holdout task; these adapters are stored in the development repo"
+ ],
+ "rules": {
+  "leakage": "strict: zero shared training rows between groups",
+  "validation": "2 groups per task (ag_news, alpaca, sst2), drawn deterministically from the 24 new matched train_v1 groups; all other groups train",
+  "evaluation": "benign task squad + payload refusal",
+  "final_holdout": "benign task dolly + payload banana; weights only in adapterlab-final"
+ },
+ "superseded_drafts": [
+  "adapter_generation/configs/policy_draft_v1.json",
+  "adapter_generation/configs/policy_draft_v2.json"
+ ],
+ "hash_note": "SHA256 of the bytes stored in git (LF line endings), not of a Windows working copy"
+}

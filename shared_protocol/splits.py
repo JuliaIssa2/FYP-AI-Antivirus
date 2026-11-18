@@ -24,12 +24,19 @@ POLICY_KEYS = {"schema_version", "seed", "calibration_groups", "validation_group
 
 def _policy(policy: dict) -> dict:
     """Schema 1: unchanged. Schema 2 adds `validation_eligible_groups`: the preregistered leakage groups that may
-    be drawn for validation (e.g. only new matched groups); every other group stays in training."""
+    be drawn for validation (e.g. only new matched groups); every other group stays in training. Schema 3 also
+    adds `validation_groups_per_task`: draw exactly that many eligible groups per task (each eligible group must
+    have a single task), and `validation_groups_per_stratum` must equal the resulting total, so the policy states
+    both numbers explicitly."""
     version = policy.get("schema_version") if isinstance(policy, dict) else None
-    if type(version) is not int or version not in (1, 2):
+    if type(version) is not int or version not in (1, 2, 3):
         raise ProtocolError("Unsupported policy schema_version")
-    exact_keys(policy, POLICY_KEYS | ({"validation_eligible_groups"} if version == 2 else set()), "policy")
-    if version == 2:
+    extra = {2: {"validation_eligible_groups"}, 3: {"validation_eligible_groups", "validation_groups_per_task"}}
+    exact_keys(policy, POLICY_KEYS | extra.get(version, set()), "policy")
+    if version == 3 and (type(policy["validation_groups_per_task"]) is not int
+                         or policy["validation_groups_per_task"] < 1):
+        raise ProtocolError("policy.validation_groups_per_task: invalid integer")
+    if version >= 2:
         groups = policy["validation_eligible_groups"]
         if not isinstance(groups, list) or not groups:
             raise ProtocolError("validation_eligible_groups: expected nonempty list")
@@ -41,7 +48,7 @@ def _policy(policy: dict) -> dict:
         if type(policy[field]) is not int or policy[field] < (0 if field == "seed" else 1):
             raise ProtocolError(f"policy.{field}: invalid integer")
     normalized = deepcopy(policy)
-    if version == 2:
+    if version >= 2:
         normalized["validation_eligible_groups"] = sorted(normalized["validation_eligible_groups"])
     for partition in ("evaluation", "final_holdout"):
         selection = normalized[partition]
@@ -133,11 +140,29 @@ def create_split(manifest: dict, policy: dict) -> dict:
             if len(members) <= count:
                 raise ProtocolError(f"Insufficient groups for train/validation stratum {stratum}")
             validation = members[:count]
-        else:  # only preregistered groups may be drawn; strata without any stay entirely in training
+        elif "validation_groups_per_task" not in policy:  # schema 2: preregistered groups only
             pool = ordered([g for g in members if g in set(eligible)], "validation-eligible:" + ",".join(stratum))
             if pool and (len(pool) < count or len(members) <= count):
                 raise ProtocolError(f"Insufficient validation-eligible groups for stratum {stratum}")
             validation = pool[:count]
+        else:  # schema 3: the same number of eligible groups from every task
+            per_task = policy["validation_groups_per_task"]
+            by_task = defaultdict(list)
+            for g in members:
+                if g in set(eligible):
+                    tasks = {row["task"] for row in groups[g]}
+                    if len(tasks) != 1:
+                        raise ProtocolError(f"Validation-eligible group {g} spans several tasks {sorted(tasks)}")
+                    by_task[tasks.pop()].append(g)
+            validation = []
+            for task, pool in sorted(by_task.items()):
+                pool = ordered(pool, f"validation-eligible:{','.join(stratum)}:{task}")
+                if len(pool) < per_task:
+                    raise ProtocolError(f"Task {task} has {len(pool)} validation-eligible groups, needs {per_task}")
+                validation.extend(pool[:per_task])
+            if validation and (len(validation) != count or len(members) <= count):
+                raise ProtocolError(f"Stratum {stratum}: per-task draw gives {len(validation)} validation groups; "
+                                    f"validation_groups_per_stratum is {count}")
         assigned["validation"].extend(validation)
         assigned["train"].extend(g for g in members if g not in set(validation))
 
