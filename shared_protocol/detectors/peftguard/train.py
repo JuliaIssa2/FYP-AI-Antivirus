@@ -1,0 +1,263 @@
+"""Retrain PEFTGuard on EXACTLY the shared train split (early stopping on the shared validation split only).
+
+Recipe = the authors' released train.py as copied in adapter_generation/dataset/peftguard_generic.py: Adam lr 1e-4,
+weight decay 1e-5, cosine to 5e-6 over 20 epochs, BCEWithLogits on one-hot labels, effective batch 4, early stopping
+after the half-way epoch with patience 5. Differences, all recorded in the fit record: validation is the shared
+validation partition (not a 10% re-split of train); prediction = argmax(logits); optional 8-bit Adam / bf16 autocast
+because fp32 Adam on the 2.15B-parameter fc1 needs about 39 GB (it does not fit a 40 GB A100).
+
+Memory (Llama-2-7B): fp32 weights 8.6 GB + grads 8.6 GB + Adam states 17.2 GB + 4.3 GB per input. ``auto`` picks plain
+fp32 Adam on GPUs with >= 70 GB and 8-bit Adam + bf16 autocast otherwise.
+
+CLI (from the repository root):
+  python -m shared_protocol.detectors.peftguard.train --manifest manifest.json --split splits.json \
+      --adapter-root /content/adapters --out /content/runs/peftguard_seed0
+Only development partitions (train, validation) are ever opened here. Evaluation/final records are never touched.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from ...manifest import ProtocolError, load_manifest, write_new_json
+from ...scoring import AdapterInput, ProtocolBinding, bind_protocol, verify_records
+from ...splits import development_records, load_split
+from .converter import LAYOUT_ID, build_input, load_qv_factors, root_resolver, default_resolver, sha256_file
+
+FIT_SCHEMA = 1
+CHECKPOINT_NAME = "peftguard_best.pt"
+FIT_NAME = "fit.json"
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    dim: int = 4096
+    layers: int = 32
+    rank: int = 16
+    epochs: int = 20
+    lr: float = 1e-4
+    weight_decay: float = 1e-5
+    eta_min: float = 5e-6
+    effective_batch: int = 4          # micro-batch is 1 input (4.3 GB each); gradients are accumulated
+    patience: int = 5
+    optimizer: str = "adam"           # adam | adam8bit (bitsandbytes)
+    autocast: str = "none"            # none | bf16 (CUDA only)
+    seed: int = 0
+
+    def __post_init__(self):
+        if self.optimizer not in ("adam", "adam8bit") or self.autocast not in ("none", "bf16"):
+            raise ProtocolError("optimizer must be adam|adam8bit, autocast none|bf16 (resolve 'auto' first)")
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def auto_memory_plan(total_gb: float | None) -> tuple[str, str]:
+    """(optimizer, autocast) for a GPU with ``total_gb`` memory; CPU/None -> plain fp32."""
+    if total_gb is None or total_gb >= 70:
+        return "adam", "none"
+    return "adam8bit", "bf16"
+
+
+@dataclass(frozen=True)
+class Item:
+    adapter_id: str
+    path: Path
+    sha256: str
+    label: int
+
+
+def items_from_records(binding: ProtocolBinding, records, partition: str, resolver, cfg: TrainConfig, *,
+                       only_label: str | None = None) -> list[Item]:
+    """Verify a development view, check every file's bytes against the manifest hash, return labelled items.
+
+    ``only_label="benign"`` keeps just those adapters (one-class detectors): the other files are never opened or hashed.
+    """
+    if partition not in ("train", "validation"):
+        raise ProtocolError("PEFTGuard fitting may only use train/validation records")
+    rows = verify_records(binding, records, partition)
+    if only_label is not None:
+        if only_label not in ("benign", "malicious"):
+            raise ProtocolError("only_label must be 'benign' or 'malicious'")
+        rows = tuple(row for row in rows if row["label"] == only_label)
+    items = []
+    for row in rows:
+        if row["lora_rank"] != cfg.rank or sorted(row["target_modules"]) != ["q_proj", "v_proj"]:
+            raise ProtocolError(f"{row['adapter_id']}: PEFTGuard layout needs rank {cfg.rank}, q_proj+v_proj only")
+        adapter = AdapterInput(row["adapter_id"], row["path_or_source"], row["source_revision"], row["sha256"],
+                               row["base_model"], row["lora_rank"], row["lora_alpha"], tuple(sorted(row["target_modules"])))
+        path = resolver(adapter)
+        if sha256_file(path) != row["sha256"]:
+            raise ProtocolError(f"{row['adapter_id']}: file bytes differ from the manifest SHA256")
+        items.append(Item(row["adapter_id"], Path(path), row["sha256"], 1 if row["label"] == "malicious" else 0))
+    if only_label is None and {i.label for i in items} != {0, 1}:
+        raise ProtocolError(f"{partition} needs both classes")
+    return items
+
+
+def software_versions() -> dict:
+    import numpy
+    import torch
+    out = {"python": sys.version.split()[0], "numpy": numpy.__version__, "torch": torch.__version__}
+    try:
+        import bitsandbytes
+        out["bitsandbytes"] = bitsandbytes.__version__
+    except Exception:
+        pass
+    return out
+
+
+def _make_optimizer(name, params, cfg):
+    import torch
+    if name == "adam":
+        return torch.optim.Adam(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+    try:
+        import bitsandbytes as bnb
+    except ImportError as exc:
+        raise ProtocolError("optimizer 'adam8bit' needs `pip install bitsandbytes` (GPU only)") from exc
+    return bnb.optim.Adam8bit(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+
+
+def _logits(model, x, cfg, device):
+    import torch
+    if cfg.autocast == "bf16" and str(device).startswith("cuda"):
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            return model(x).float()
+    return model(x).float()
+
+
+def _evaluate(model, items, cfg, device):
+    import torch
+    import torch.nn.functional as F
+    model.eval()
+    loss = correct = 0.0
+    with torch.no_grad():
+        for item in items:
+            x = build_input(load_qv_factors(item.path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank),
+                            dim=cfg.dim, layers=cfg.layers, device=device)
+            out = _logits(model, x, cfg, device)
+            target = F.one_hot(torch.tensor([item.label], device=out.device), 2).float()
+            loss += float(F.binary_cross_entropy_with_logits(out, target))
+            correct += float((out[0, 1] > out[0, 0]).item() == bool(item.label))
+            del x
+    n = len(items)
+    return loss / n, correct / n
+
+
+def fit(binding: ProtocolBinding, train_records, val_records, cfg: TrainConfig, out_dir: str | Path, *,
+        resolver=default_resolver, device: str | None = None, log=print) -> dict:
+    """Train, keep the best checkpoint, write fit.json (exclusive). Returns the fit record."""
+    import numpy as np
+    import torch
+    import torch.nn.functional as F
+    from .model import PGLlama2, architecture
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ckpt = out_dir / CHECKPOINT_NAME
+    if ckpt.exists() or (out_dir / FIT_NAME).exists():
+        raise ProtocolError("Output directory already holds a run: never overwrite a fitted detector")
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    train = items_from_records(binding, train_records, "train", resolver, cfg)
+    val = items_from_records(binding, val_records, "validation", resolver, cfg)
+    log(f"train {len(train)} ({sum(i.label for i in train)} malicious) | val {len(val)} | device {device} | "
+        f"opt {cfg.optimizer} autocast {cfg.autocast}")
+
+    torch.manual_seed(cfg.seed)
+    rng = np.random.default_rng(cfg.seed)
+    with torch.device(device):
+        model = PGLlama2(cfg.dim, cfg.layers)
+    opt = _make_optimizer(cfg.optimizer, model.parameters(), cfg)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs, eta_min=cfg.eta_min)
+    best_loss, best_acc, best_epoch, stall, history = float("inf"), 0.0, -1, 0, []
+    for epoch in range(cfg.epochs):
+        t0 = time.time()
+        model.train()
+        order = [train[i] for i in rng.permutation(len(train))]
+        total = 0.0
+        for start in range(0, len(order), cfg.effective_batch):
+            chunk = order[start:start + cfg.effective_batch]
+            opt.zero_grad(set_to_none=True)
+            for item in chunk:
+                x = build_input(load_qv_factors(item.path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank),
+                                dim=cfg.dim, layers=cfg.layers, device=device)
+                out = _logits(model, x, cfg, device)
+                target = F.one_hot(torch.tensor([item.label], device=out.device), 2).float()
+                loss = F.binary_cross_entropy_with_logits(out, target)
+                (loss / len(chunk)).backward()
+                total += float(loss.detach())
+                del x, out
+            opt.step()
+        sched.step()
+        val_loss, val_acc = _evaluate(model, val, cfg, device)
+        improved = val_loss < best_loss and val_acc >= best_acc
+        if improved:
+            best_loss, best_acc, best_epoch, stall = val_loss, val_acc, epoch + 1, 0
+            tmp = ckpt.with_suffix(".tmp")
+            torch.save(model.state_dict(), tmp)
+            os.replace(tmp, ckpt)
+        elif epoch >= cfg.epochs // 2:
+            stall += 1
+        history.append({"epoch": epoch + 1, "train_loss": total / len(train), "val_loss": val_loss, "val_acc": val_acc,
+                        "saved": improved})
+        log(f"ep {epoch + 1:02d} train_loss {total / len(train):.4f} val_loss {val_loss:.4f} val_acc {val_acc:.3f}"
+            f"{' *' if improved else ''} ({time.time() - t0:.0f}s)")
+        if stall >= cfg.patience:
+            break
+    if best_epoch < 0:
+        raise ProtocolError("No epoch improved validation loss/accuracy; nothing to freeze (check the data/labels)")
+    record = {
+        "schema_version": FIT_SCHEMA, "kind": "peftguard_retrained", "layout": LAYOUT_ID,
+        "architecture": architecture(cfg.dim, cfg.layers), "config": cfg.to_dict(),
+        "protocol_sha256": binding.sha256,
+        "fit_ids": sorted(i.adapter_id for i in train), "tuning_ids": sorted(i.adapter_id for i in val),
+        "train_records_sha256": binding.records_digest("train"),
+        "validation_records_sha256": binding.records_digest("validation"),
+        "best_epoch": best_epoch, "best_val_loss": best_loss, "best_val_acc": best_acc, "history": history,
+        "checkpoint_file": CHECKPOINT_NAME, "checkpoint_sha256": sha256_file(ckpt),
+        "software": software_versions(),
+        "train_py_sha256": sha256_file(Path(__file__)),
+    }
+    write_new_json(out_dir / FIT_NAME, record)
+    log(f"best epoch {best_epoch} val_loss {best_loss:.4f} val_acc {best_acc:.3f} -> {ckpt}")
+    return record
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--split", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--adapter-root", help="staged folder <root>/<adapter_id>/adapter_model.safetensors "
+                                          "(default: use each manifest path_or_source)")
+    ap.add_argument("--optimizer", choices=["auto", "adam", "adam8bit"], default="auto")
+    ap.add_argument("--autocast", choices=["auto", "none", "bf16"], default="auto")
+    ap.add_argument("--epochs", type=int, default=20)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--dim", type=int, default=4096, help="only reduced for synthetic tests")
+    ap.add_argument("--layers", type=int, default=32, help="only reduced for synthetic tests")
+    a = ap.parse_args(argv)
+    import torch
+    total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30 if torch.cuda.is_available() else None
+    opt, amp = auto_memory_plan(total_gb)
+    cfg = TrainConfig(dim=a.dim, layers=a.layers, epochs=a.epochs, seed=a.seed,
+                      optimizer=opt if a.optimizer == "auto" else a.optimizer,
+                      autocast=amp if a.autocast == "auto" else a.autocast)
+    manifest = load_manifest(a.manifest, require_verified=True)
+    plan = load_split(a.split, manifest)
+    binding = bind_protocol(manifest, plan)
+    resolver = root_resolver(a.adapter_root) if a.adapter_root else default_resolver
+    record = fit(binding, development_records(manifest, plan, "train"), development_records(manifest, plan, "validation"),
+                 cfg, a.out, resolver=resolver)
+    print(json.dumps({k: record[k] for k in ("best_epoch", "best_val_loss", "best_val_acc", "checkpoint_sha256")}, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
