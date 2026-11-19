@@ -16,6 +16,8 @@ Heavy imports (torch, numpy, safetensors) are done inside functions so ``shared_
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 import re
 from pathlib import Path
 
@@ -44,7 +46,8 @@ def parse_key(key: str):
     return (int(match.group(1)), match.group(2), match.group(3)) if match else None
 
 
-def load_qv_factors(path: str | Path, *, dim: int, layers: int, rank: int | None = None) -> dict:
+def load_qv_factors(path: str | Path, *, dim: int, layers: int, rank: int | None = None,
+                    expected_sha256: str | None = None) -> dict:
     """{(layer, module): (A[r, dim], B[dim, r])} as float32 numpy, strictly validated.
 
     Requires exactly the q_proj/v_proj LoRA factors of layers 0..layers-1 with A=(r, dim), B=(dim, r). Any other
@@ -53,23 +56,68 @@ def load_qv_factors(path: str | Path, *, dim: int, layers: int, rank: int | None
     import numpy as np
     from safetensors import safe_open
 
-    try:
-        handle = safe_open(str(path), framework="np")
-        keys = list(handle.keys())
-        get = handle.get_tensor
-    except Exception:  # bf16 tensors cannot become numpy: go through torch
-        handle = safe_open(str(path), framework="pt")
-        keys = list(handle.keys())
-        get = lambda k: handle.get_tensor(k).float().numpy()  # noqa: E731
+    if expected_sha256 is None:
+        try:
+            handle = safe_open(str(path), framework="np")
+            keys = list(handle.keys())
+            get = handle.get_tensor
+        except Exception:  # bf16 tensors cannot become numpy: go through torch
+            handle = safe_open(str(path), framework="pt")
+            keys = list(handle.keys())
+            get = lambda k: handle.get_tensor(k).float().numpy()  # noqa: E731
+    else:
+        from safetensors import deserialize
+        from safetensors.numpy import load as load_numpy
+
+        # The supported tensor layout has four factors per layer, at most 8 bytes per element.
+        # The remaining allowance is for the Safetensors header.
+        max_bytes = 32 * layers * dim * (dim if rank is None else rank) + (1 << 20)
+        if not Path(path).is_file():
+            raise ConverterError("Expected a regular adapter file")
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ConverterError("Expected a regular adapter file")
+            if info.st_size > max_bytes:
+                raise ConverterError("Adapter exceeds the size of the supported Q/V factor layout")
+            data = stream.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ConverterError("Adapter exceeds the size of the supported Q/V factor layout")
+        if hashlib.sha256(data).hexdigest() != expected_sha256:
+            raise ConverterError("Adapter file bytes differ from the manifest SHA256")
+        try:
+            entries = deserialize(data)
+            dtypes = {name: metadata["dtype"] for name, metadata in entries}
+            if set(dtypes.values()) - {"F16", "BF16", "F32", "F64"}:
+                raise ConverterError("Expected floating-point LoRA factors")
+            if "BF16" in dtypes.values():
+                from safetensors.torch import load as load_torch
+                tensors = load_torch(data)
+                get = lambda key: tensors[key].float().numpy()  # noqa: E731
+            else:
+                tensors = load_numpy(data)
+                get = tensors.__getitem__
+            keys = list(tensors)
+        except ConverterError:
+            raise
+        except Exception as exc:
+            raise ConverterError("Unable to decode verified Safetensors factors") from exc
+
     found: dict = {}
     for key in keys:
         parsed = parse_key(key)
         if parsed is None:
+            if expected_sha256 is not None:
+                raise ConverterError(f"Unexpected tensor {key!r}: expected Q/V LoRA factors only")
             continue
         layer, module, ab = parsed
         if module not in MODULES:
             raise ConverterError(f"Unsupported LoRA module {module!r}: the PEFTGuard layout is q_proj/v_proj only")
-        found.setdefault((layer, module), {})[ab] = np.asarray(get(key), dtype=np.float32)
+        pair = found.setdefault((layer, module), {})
+        if expected_sha256 is not None and ab in pair:
+            raise ConverterError(f"Duplicate LoRA factor for layer {layer}, {module}, {ab}")
+        pair[ab] = np.asarray(get(key), dtype=np.float32)
     expected = {(layer, module) for layer in range(layers) for module in MODULES}
     if set(found) != expected:
         raise ConverterError(f"Expected q/v factors for layers 0..{layers - 1}; found {len(found)} blocks")
@@ -114,10 +162,24 @@ def weights_file(path_or_source: str | Path) -> Path:
     return path
 
 
-def root_resolver(root: str | Path):
+def root_resolver(root: str | Path, *, restricted: bool = False):
     """Resolver for a staged folder ``<root>/<adapter_id>/adapter_model.safetensors`` (e.g. neutral names on Colab)."""
     root = Path(root)
-    return lambda adapter: weights_file(root / adapter.adapter_id)
+    if not restricted:
+        return lambda adapter: weights_file(root / adapter.adapter_id)
+    root = root.resolve()
+
+    def resolve(adapter):
+        key = adapter.adapter_id
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key):
+            raise ConverterError("Adapter ID must be a neutral path component")
+        directory = root / key
+        path = directory / "adapter_model.safetensors"
+        if directory.is_symlink() or path.is_symlink() or not path.resolve().is_relative_to(root):
+            raise ConverterError("Adapter path must stay inside the staging root without symlinks")
+        return path
+
+    return resolve
 
 
 def default_resolver(adapter) -> Path:

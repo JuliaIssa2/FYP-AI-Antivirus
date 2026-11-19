@@ -93,10 +93,11 @@ class Item:
 
 
 def items_from_records(binding: ProtocolBinding, records, partition: str, resolver, cfg: TrainConfig, *,
-                       only_label: str | None = None) -> list[Item]:
+                       only_label: str | None = None, verify_file: bool = True) -> list[Item]:
     """Verify a development view, check every file's bytes against the manifest hash, return labelled items.
 
     ``only_label="benign"`` keeps just those adapters (one-class detectors): the other files are never opened or hashed.
+    Disable ``verify_file`` only when the caller verifies the exact bounded bytes it parses.
     """
     if partition not in ("train", "validation"):
         raise ProtocolError("PEFTGuard fitting may only use train/validation records")
@@ -112,7 +113,7 @@ def items_from_records(binding: ProtocolBinding, records, partition: str, resolv
         adapter = AdapterInput(row["adapter_id"], row["path_or_source"], row["source_revision"], row["sha256"],
                                row["base_model"], row["lora_rank"], row["lora_alpha"], tuple(sorted(row["target_modules"])))
         path = resolver(adapter)
-        if sha256_file(path) != row["sha256"]:
+        if verify_file and sha256_file(path) != row["sha256"]:
             raise ProtocolError(f"{row['adapter_id']}: file bytes differ from the manifest SHA256")
         items.append(Item(row["adapter_id"], Path(path), row["sha256"], 1 if row["label"] == "malicious" else 0))
     if only_label is None and {i.label for i in items} != {0, 1}:
