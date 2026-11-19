@@ -3,12 +3,12 @@
 Question it answers: does Meta Neural Trojan Detection's conclusion (benign-only training is insufficient) hold for LoRA
 adapters? Only BENIGN adapters of the shared train split are used (decoys count: they are hard negatives). Backdoored train
 adapters are never opened or hashed. No hyper-parameter is tuned: the covariance is the Ledoit-Wolf shrunk estimate
-(automatic shrinkage, full rank even when clean adapters < 30 features). The validation split is not used for anything
+(automatic shrinkage; degenerate fits are rejected). The validation split is not used for anything
 except an AUROC diagnostic. Calibration is separate: the 5% threshold comes from the clean CALIBRATION partition.
 
 CLI (repository root):
   python -m shared_protocol.detectors.oneclass.train --manifest manifest.json --split splits.json \
-      --adapter-root /content/adapters --cache-dir /content/oneclass_cache --out /content/runs/oneclass
+      --adapter-root /content/adapters --out /content/runs/oneclass
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -37,37 +38,40 @@ class OneClassConfig:
     rank: int = 16
     min_clean: int = 10   # refuse to fit on fewer clean adapters; prefer >= 50
 
+    def __post_init__(self) -> None:
+        if (any(type(value) is not int or value < 1 for value in (self.layers, self.dim, self.rank))
+                or self.rank > self.dim or type(self.min_clean) is not int or self.min_clean < 2):
+            raise ProtocolError("Invalid one-class dimensions, rank or minimum clean count")
+
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 def source_sha256() -> str:
-    here = Path(__file__).resolve().parent
-    return digest({name: sha256_file(here / name) for name in ("features.py", "model.py", "detector.py")})
+    root = Path(__file__).resolve().parents[2]
+    files = (
+        "detectors/oneclass/features.py", "detectors/oneclass/train.py",
+        "detectors/oneclass/model.py", "detectors/oneclass/detector.py",
+        "detectors/peftguard/converter.py", "detectors/peftguard/train.py",
+        "manifest.py", "splits.py", "scoring.py",
+    )
+    return digest({name: sha256_file(root / name) for name in files})
 
 
 def features_for(path, sha256: str, cfg: OneClassConfig, cache_dir=None) -> np.ndarray:
-    cache = None
-    if cache_dir is not None:
-        key = digest({"x": EXTRACTOR_VERSION, "src": sha256_file(Path(__file__).with_name("features.py")),
-                      "layers": cfg.layers, "dim": cfg.dim})[:16]
-        cache = Path(cache_dir) / f"{sha256}_{key}.npy"
-        if cache.is_file():
-            vector = np.load(cache, allow_pickle=False)
-            if vector.shape == (N_FEATURES,) and np.isfinite(vector).all():
-                return vector
-    vector = extract_features(load_qv_factors(path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank), layers=cfg.layers)
-    if cache is not None:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        np.save(cache, vector)
-    return vector
+    """Extract from verified bytes. The legacy cache argument is accepted but unused."""
+    factors = load_qv_factors(path, dim=cfg.dim, layers=cfg.layers, rank=cfg.rank, expected_sha256=sha256)
+    return extract_features(factors, layers=cfg.layers)
 
 
 def software_versions() -> dict:
-    import scipy
-    import sklearn
-    return {"python": sys.version.split()[0], "numpy": np.__version__, "scipy": scipy.__version__,
-            "scikit-learn": sklearn.__version__}
+    packages = {"python": sys.version.split()[0]}
+    for name in ("numpy", "scipy", "scikit-learn", "safetensors", "torch"):
+        try:
+            packages[name] = version(name)
+        except PackageNotFoundError:
+            packages[name] = None
+    return packages
 
 
 def benign_train_ids(binding: ProtocolBinding, train_records) -> tuple[str, ...]:
@@ -84,12 +88,20 @@ def fit(binding: ProtocolBinding, train_records, val_records, cfg: OneClassConfi
     out_dir.mkdir(parents=True, exist_ok=True)
     if (out_dir / MODEL_NAME).exists():
         raise ProtocolError("Output directory already holds a fitted model: never overwrite")
-    clean = items_from_records(binding, train_records, "train", resolver, cfg, only_label="benign")
+    clean = items_from_records(binding, train_records, "train", resolver, cfg, only_label="benign", verify_file=False)
     if len(clean) < cfg.min_clean:
         raise ProtocolError(f"Only {len(clean)} clean train adapters; need at least {cfg.min_clean} (prefer 50+)")
     log(f"fitting on {len(clean)} clean train adapters (backdoored train adapters are not opened) | {N_FEATURES} features")
     x = np.vstack([features_for(i.path, i.sha256, cfg, cache_dir) for i in clean])
+    if not np.any(x != x[0]):
+        raise ProtocolError("Benign training vectors are identical; covariance cannot be estimated")
     lw = LedoitWolf().fit(x)
+    if not np.isfinite(lw.covariance_).all():
+        raise ProtocolError("Benign covariance contains non-finite values")
+    eigenvalues = np.linalg.eigvalsh(lw.covariance_)
+    if (not np.isfinite(eigenvalues).all()
+            or eigenvalues[0] <= eigenvalues[-1] * N_FEATURES * np.finfo(np.float64).eps):
+        raise ProtocolError("Benign covariance is singular or numerically ill-conditioned")
     body = {
         "schema_version": MODEL_SCHEMA, "kind": MODEL_KIND, "extractor": EXTRACTOR_VERSION, "config": cfg.to_dict(),
         "feature_dim": N_FEATURES, "protocol_sha256": binding.sha256,
@@ -101,7 +113,7 @@ def fit(binding: ProtocolBinding, train_records, val_records, cfg: OneClassConfi
     }
     diagnostics = {"validation_auroc_not_used_for_anything": None}
     if val_records:
-        val = items_from_records(binding, val_records, "validation", resolver, cfg)
+        val = items_from_records(binding, val_records, "validation", resolver, cfg, verify_file=False)
         xv = np.vstack([features_for(i.path, i.sha256, cfg, cache_dir) for i in val])
         yv = np.array([i.label for i in val])
         d = xv - lw.location_
@@ -123,7 +135,7 @@ def main(argv=None) -> int:
     ap.add_argument("--split", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--adapter-root", help="<root>/<adapter_id>/adapter_model.safetensors (default: path_or_source)")
-    ap.add_argument("--cache-dir")
+    ap.add_argument("--cache-dir", help="Deprecated: feature caching is disabled")
     ap.add_argument("--dim", type=int, default=4096, help="reduced only for synthetic tests")
     ap.add_argument("--layers", type=int, default=32, help="reduced only for synthetic tests")
     ap.add_argument("--min-clean", type=int, default=10)
@@ -132,7 +144,7 @@ def main(argv=None) -> int:
     manifest = load_manifest(a.manifest, require_verified=True)
     plan = load_split(a.split, manifest)
     binding = bind_protocol(manifest, plan)
-    resolver = root_resolver(a.adapter_root) if a.adapter_root else default_resolver
+    resolver = root_resolver(a.adapter_root, restricted=True) if a.adapter_root else default_resolver
     result = fit(binding, development_records(manifest, plan, "train"), development_records(manifest, plan, "validation"),
                  cfg, a.out, resolver=resolver, cache_dir=a.cache_dir)
     print(json.dumps({k: result[k] for k in ("model_file_sha256", "n_fit", "validation_auroc")}, indent=1))
