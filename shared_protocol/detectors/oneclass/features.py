@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-EXTRACTOR_VERSION = "spectral30_alllayers_unscaled_v1"
+EXTRACTOR_VERSION = "spectral30_alllayers_unscaled_v2"
 MODULES = ("q_proj", "v_proj")
 STATS = ("sigma1", "fro", "energy_concentration", "entropy", "kurtosis")
 AGGREGATES = ("mean", "std", "max")
@@ -38,8 +38,13 @@ def layer_stats(a: np.ndarray, b: np.ndarray) -> list[float]:
     tot = e.sum() + 1e-30
     p = e / tot
     entropy = float(-(p * np.log(p + 1e-12)).sum() / np.log(len(s))) if len(s) > 1 else 0.0
-    sd = s.std()
-    kurt = float(((s - s.mean()) ** 4).mean() / sd ** 4 - 3) if sd > 0 else 0.0
+    centered = s - s.mean()
+    scale = np.max(np.abs(centered))
+    kurt = 0.0
+    if scale > 0:
+        # Kurtosis is scale invariant. Normalize before taking powers to avoid underflow.
+        normalized = centered / scale
+        kurt = float(np.mean(normalized ** 4) / np.mean(normalized ** 2) ** 2 - 3)
     return [float(s[0]), float(np.sqrt(tot)), float(e[0] / tot), entropy, kurt]
 
 

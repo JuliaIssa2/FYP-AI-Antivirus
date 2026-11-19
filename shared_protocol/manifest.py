@@ -45,9 +45,14 @@ def _unique_keys(pairs: list) -> dict:
     return result
 
 
-def read_json(path: str | Path) -> dict:
+def read_json(path: str | Path, *, expected_sha256: str | None = None) -> dict:
     def invalid_constant(value: str) -> None:
         raise ProtocolError(f"Non-finite JSON number: {value}")
+    if expected_sha256 is not None:
+        data = Path(path).read_bytes()
+        if hashlib.sha256(data).hexdigest() != expected_sha256:
+            raise ProtocolError("JSON artifact bytes differ from the expected SHA256")
+        return json.loads(data.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=invalid_constant)
     with Path(path).open(encoding="utf-8") as handle:
         return json.load(handle, object_pairs_hook=_unique_keys,
                          parse_constant=invalid_constant)

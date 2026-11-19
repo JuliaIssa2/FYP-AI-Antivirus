@@ -7,14 +7,16 @@ suspicious. The direction is fixed by the method, never chosen from labels or AU
 from __future__ import annotations
 
 import math
+import os
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 
 import numpy as np
 
-from ...manifest import ProtocolError, digest, read_json, write_new_json
+from ...manifest import ProtocolError, canonical_json, digest, read_json
 from .features import EXTRACTOR_VERSION, N_FEATURES
 
-MODEL_SCHEMA = 1
+MODEL_SCHEMA = 2
 MODEL_KIND = "oneclass_mahalanobis_ledoit_wolf"
 MODEL_NAME = "model.json"
 
@@ -40,8 +42,8 @@ class FrozenMahalanobis:
             raise ProtocolError("Feature vector has the wrong size or is not finite")
         d = x - self.mean
         value = float(d @ self.precision @ d)
-        if not math.isfinite(value):
-            raise ProtocolError("Non-finite distance")
+        if not math.isfinite(value) or value < 0:
+            raise ProtocolError("Invalid squared distance")
         return value
 
 
@@ -50,16 +52,25 @@ def save_model(path: str | Path, body: dict) -> str:
         raise ProtocolError("Not a one-class Mahalanobis model body")
     FrozenMahalanobis(body)
     model_sha = digest(body)
-    write_new_json(path, {"model": body, "model_sha256": model_sha})
+    path = Path(path)
+    content = canonical_json({"model": body, "model_sha256": model_sha}) + "\n"
+    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            handle.write(content)
+            handle.close()
+            os.link(temporary, path)
+        finally:
+            temporary.unlink()
     return model_sha
 
 
-def load_model(path: str | Path) -> FrozenMahalanobis:
-    data = read_json(path)
-    if set(data) != {"model", "model_sha256"} or digest(data["model"]) != data["model_sha256"]:
+def load_model(path: str | Path, *, expected_sha256: str | None = None) -> FrozenMahalanobis:
+    data = read_json(path, expected_sha256=expected_sha256)
+    if not isinstance(data, dict) or set(data) != {"model", "model_sha256"} or digest(data["model"]) != data["model_sha256"]:
         raise ProtocolError("Model file is malformed or its internal digest does not match")
     body = data["model"]
-    if (body.get("schema_version") != MODEL_SCHEMA or body.get("kind") != MODEL_KIND
+    if (not isinstance(body, dict) or body.get("schema_version") != MODEL_SCHEMA or body.get("kind") != MODEL_KIND
             or body.get("extractor") != EXTRACTOR_VERSION):
         raise ProtocolError("Model was made by a different schema/extractor version")
     return FrozenMahalanobis(body)
