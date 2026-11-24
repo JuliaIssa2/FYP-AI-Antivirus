@@ -23,7 +23,7 @@ def setUpModule():
 
 from shared_protocol.calibration import calibrate_benign
 from shared_protocol.evaluation import evaluate, score_evaluation
-from shared_protocol.manifest import ProtocolError, read_json, write_new_json
+from shared_protocol.manifest import PRIMARY_MODEL, ProtocolError, read_json, write_new_json
 from shared_protocol.scoring import AdapterInput, bind_protocol, score_development
 from shared_protocol.splits import create_split, development_records
 from shared_protocol.tests.test_foundations import fixture
@@ -103,6 +103,95 @@ class FeatureTests(unittest.TestCase):
             module, stat, agg = name.split(".")
             self.assertAlmostEqual(value, float(old[f"{module}__{rename.get(stat, stat)}_{agg}"]),
                                    delta=1e-4 * max(1.0, abs(value)), msg=name)
+
+
+    def test_strict_snapshot_rejects_extra_factor_alias_and_integer_weights(self):
+        from safetensors.numpy import load_file
+        from shared_protocol.detectors.peftguard.converter import load_qv_factors, sha256_file
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "adapter_model.safetensors"
+            expected = write_adapter(path, np.random.default_rng(6), False)
+            clean = load_file(path)
+            name = next(k for k in clean if ".lora_A." in k)
+            self.assertEqual(len(load_qv_factors(path, dim=DIM, layers=LAYERS, rank=RANK,
+                                                 expected_sha256=expected)), LAYERS * 2)
+            for tensors, error in (
+                ({**clean, name.replace(".weight", ".default.weight"): clean[name]}, "Duplicate"),
+                ({**clean, "unsupported.weight": np.zeros(1, dtype=np.float32)}, "Unexpected"),
+                ({**clean, name: clean[name].astype(np.int32)}, "floating-point"),
+                ({k: v for k, v in clean.items() if k != name}, "lacks"),
+            ):
+                with self.subTest(error=error):
+                    save_file(tensors, str(path))
+                    with self.assertRaisesRegex(ProtocolError, error):
+                        load_qv_factors(path, dim=DIM, layers=LAYERS, rank=RANK,
+                                        expected_sha256=sha256_file(path))
+            with self.assertRaisesRegex(ProtocolError, "SHA256"):
+                load_qv_factors(path, dim=DIM, layers=LAYERS, rank=RANK, expected_sha256=expected)
+
+    def test_all_30_features_against_independent_dense_oracle(self):
+        from scipy.stats import kurtosis
+        from shared_protocol.detectors.oneclass.features import extract_features
+
+        factors = {}
+        expected = []
+        for module, multiplier in (("q_proj", 1), ("v_proj", 3)):
+            stats = []
+            for layer in range(LAYERS):
+                a = np.eye(RANK, DIM)
+                b = (multiplier + layer) * np.eye(DIM, RANK)
+                b[0, 0] *= 2
+                factors[layer, module] = (a, b)
+                update = b @ a
+                singular = np.linalg.svd(update, compute_uv=False)[:RANK]
+                probs = singular**2 / np.linalg.norm(update, "fro")**2
+                stats.append([np.linalg.norm(update, 2), np.linalg.norm(update, "fro"), max(probs),
+                              -sum(probs * np.log(probs)) / np.log(RANK), kurtosis(singular)])
+            for values in zip(*stats):
+                expected.extend([np.mean(values), np.std(values), max(values)])
+        np.testing.assert_allclose(extract_features(factors, layers=LAYERS), expected, atol=1e-10)
+
+    def test_spectral_edge_cases_keep_documented_conventions(self):
+        from shared_protocol.detectors.oneclass.features import layer_stats
+        np.testing.assert_allclose(layer_stats(np.zeros((2, 2)), np.eye(2)), [0, 1e-15, 0, 0, 0],
+                                   rtol=1e-12, atol=0)
+        np.testing.assert_allclose(layer_stats(np.diag([4.0, 0.0]), np.eye(2)), [4, 4, 1, 0, -2], atol=1e-10)
+        self.assertTrue(np.isfinite(layer_stats(np.eye(2) * 1e-40, np.eye(2))).all())
+        tiny = layer_stats(np.diag([1e-90, 2e-90]), np.eye(2))
+        self.assertTrue(np.isfinite(tiny).all())
+        self.assertAlmostEqual(tiny[-1], -2.0)
+
+    @unittest.skipUnless(importlib.util.find_spec("torch"), "BF16 fixture requires torch")
+    def test_verified_float16_and_bfloat16_factors(self):
+        import torch
+        from safetensors.torch import save_file as save_torch
+        from shared_protocol.detectors.peftguard.converter import load_qv_factors, sha256_file
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "typed.safetensors"
+            for dtype in (torch.float16, torch.bfloat16):
+                tensors = {}
+                for module in ("q_proj", "v_proj"):
+                    base = f"layers.0.self_attn.{module}"
+                    tensors[f"{base}.lora_A.weight"] = torch.ones((2, 3), dtype=dtype)
+                    tensors[f"{base}.lora_B.weight"] = torch.ones((3, 2), dtype=dtype)
+                save_torch(tensors, str(path))
+                factors = load_qv_factors(path, dim=3, layers=1, rank=2, expected_sha256=sha256_file(path))
+                for pair in factors.values():
+                    for tensor in pair:
+                        self.assertEqual(tensor.dtype, np.float32)
+                        self.assertTrue((tensor == 1).all())
+
+    def test_restricted_resolver_rejects_invalid_id_and_symlink(self):
+        from types import SimpleNamespace
+        from shared_protocol.detectors.peftguard.converter import root_resolver
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            root.mkdir()
+            (root / "linked").symlink_to(Path(tmp), target_is_directory=True)
+            resolve = root_resolver(root, restricted=True)
+            for key in ("../outside", "linked"):
+                with self.subTest(key=key), self.assertRaises(ProtocolError):
+                    resolve(SimpleNamespace(adapter_id=key))
 
 
 @unittest.skipUnless(HAVE, "needs numpy, scikit-learn and safetensors")
@@ -247,9 +336,205 @@ class EndToEndTests(unittest.TestCase):
             OneClassDetector.from_model(self.model_path, binding2, self.train, expected_file_sha256=good)
 
     def test_wrong_rank_rejected_before_file_read(self):
-        bad = AdapterInput("x", "fixture://nope", "r", "0" * 64, "m", 8, 16.0, ("q_proj", "v_proj"))
+        bad = AdapterInput("x", "fixture://nope", "r", "0" * 64, PRIMARY_MODEL, 8, 16.0, ("q_proj", "v_proj"))
         with self.assertRaisesRegex(ProtocolError, "rank"):
             self.detector().score((bad,))
+
+    def test_legacy_cache_never_read_or_written(self):
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.train import features_for, OneClassConfig
+        row = self.train[0]
+        inp = self.adapter_input(row)
+        path = self.resolver(inp)
+        cached = self.cache / "stale.npy"
+        self.cache.mkdir(exist_ok=True)
+        np.save(cached, np.full(30, 99.0))
+        original = cached.read_bytes()
+        with patch("numpy.load", side_effect=AssertionError("cache read")), patch(
+                "numpy.save", side_effect=AssertionError("cache written")):
+            self.assertEqual(self.detector().score((inp,)), self.detector(cache_dir=self.cache).score((inp,)))
+            with self.assertRaisesRegex(ProtocolError, "rank"):
+                features_for(path, inp.sha256, OneClassConfig(layers=LAYERS, dim=DIM, rank=8), self.cache)
+        self.assertEqual(cached.read_bytes(), original)
+
+    def test_provenance_rejects_missing_stale_and_incompatible_state(self):
+        from shared_protocol.detectors.oneclass.detector import OneClassDetector
+        from shared_protocol.detectors.oneclass.model import save_model
+        from shared_protocol.detectors.peftguard.converter import sha256_file
+        original = read_json(self.model_path)["model"]
+        for i, (field, value, error) in enumerate((
+            ("extractor_and_wrapper_sha256", None, "implementation provenance"),
+            ("extractor_and_wrapper_sha256", "0" * 64, "implementation provenance"),
+            ("software", {}, "software provenance"),
+            ("n_fit", 0, "fitted adapter count"),
+            ("shrinkage", 2.0, "fitted shrinkage"),
+        )):
+            with self.subTest(field=field, value=value):
+                body = {**original, field: value}
+                if value is None:
+                    del body[field]
+                path = Path(self.tmp.name) / f"provenance_{i}.json"
+                save_model(path, body)
+                with self.assertRaisesRegex(ProtocolError, error):
+                    OneClassDetector.from_model(path, self.binding, self.train,
+                                                expected_file_sha256=sha256_file(path))
+
+    def test_source_identity_includes_preprocessing_training_and_scoring(self):
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.train import source_sha256
+        from shared_protocol.detectors.peftguard.converter import sha256_file
+        original = source_sha256()
+        for name in ("peftguard/converter.py", "oneclass/train.py", "peftguard/train.py", "shared_protocol/scoring.py"):
+            with self.subTest(name=name), patch(
+                "shared_protocol.detectors.oneclass.train.sha256_file",
+                side_effect=lambda path: "0" * 64 if path.as_posix().endswith(name) else sha256_file(path),
+            ):
+                self.assertNotEqual(source_sha256(), original)
+
+    def test_degenerate_fit_reports_reason_and_writes_no_model(self):
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.train import OneClassConfig, fit
+        with self.assertRaisesRegex(ProtocolError, "minimum clean"):
+            OneClassConfig(min_clean=1)
+        path = Path(self.tmp.name) / "constant_fit"
+        with patch("shared_protocol.detectors.oneclass.train.features_for", return_value=np.zeros(30)):
+            with self.assertRaisesRegex(ProtocolError, "identical"):
+                fit(self.binding, self.train, None, self.cfg, path, resolver=self.resolver, log=lambda *_: None)
+        self.assertFalse((path / "model.json").exists())
+
+    def test_supported_profile_checked_before_file_read(self):
+        bad = AdapterInput("x", "fixture://nope", "r", "0" * 64, "different-base", RANK, 16.0,
+                           ("q_proj", "v_proj"))
+        with self.assertRaisesRegex(ProtocolError, "base model"):
+            self.detector().score((bad,))
+
+    def test_model_publication_does_not_leave_partial_file(self):
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.model import save_model
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "model.json"
+            with patch("shared_protocol.detectors.oneclass.model.os.link", side_effect=OSError("interrupted")):
+                with self.assertRaisesRegex(OSError, "interrupted"):
+                    save_model(path, read_json(self.model_path)["model"])
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_formal_worker_ignores_parent_imports_and_rejects_source_drift(self):
+        import json
+        import os
+        import py_compile
+        import shutil
+        import subprocess
+        import sys
+        from dataclasses import asdict
+        from shared_protocol.detectors.oneclass import features
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            shutil.copytree(REPO / "shared_protocol", source / "shared_protocol")
+            bootstrap = REPO / "notebooks" / "oneclass_run.py"
+            command = [sys.executable, "-I", "-S", "-B", str(bootstrap)]
+            source_option = ["--source", str(source)]
+            identity = subprocess.check_output(command + ["identity", *source_option], text=True).strip()
+            bundle = root / "development.json"
+            cal = development_records(self.manifest, self.plan, "calibration")
+            write_new_json(bundle, dict(binding=asdict(self.binding), train=self.train,
+                                        validation=self.val, calibration=cal))
+            output = root / "threshold.json"
+            args = ["calibrate", *source_option, "--expected-source", identity, "--bundle", str(bundle),
+                    "--adapters", str(Path(self.tmp.name) / "ad"), "--output", str(output),
+                    "--model", str(self.model_path), "--model-sha256", self.result["model_file_sha256"]]
+            for dependency in (p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p):
+                args.extend(["--dependency-dir", dependency])
+
+            # The parent's imported module remains v2 after the source copy
+            # changes. A fresh formal launch rejects the altered checkout.
+            changed = source / "shared_protocol/detectors/oneclass/features.py"
+            old = changed.read_bytes()
+            changed.write_bytes(old + b"\nEXTRACTOR_VERSION = 'different'\n")
+            self.assertNotEqual(features.EXTRACTOR_VERSION, "different")
+            rejected = subprocess.run(command + args, text=True, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Source snapshot does not match", rejected.stderr)
+            self.assertFalse(output.exists())
+            py_compile.compile(str(changed), doraise=True,
+                               invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+            changed.write_bytes(old)
+
+            # Even a conflicting package on PYTHONPATH or in the working
+            # directory cannot override the verified source copy.
+            shadow = root / "shared_protocol"
+            shadow.mkdir()
+            (shadow / "__init__.py").write_text("raise RuntimeError('wrong module origin')\n")
+            env = dict(os.environ, PYTHONPATH=str(root))
+            accepted = subprocess.run(command + args, cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            receipt = json.loads(accepted.stdout.splitlines()[-1])
+            self.assertEqual(receipt["source_sha256"], identity)
+            result = root / "evaluation.json"
+            release = root / "release.json"
+            records = [r for r in self.manifest["adapters"] if r["adapter_id"] in self.binding.ids("evaluation")]
+            release_body = dict(protocol_sha256=self.binding.sha256, threshold_sha256=receipt["threshold_sha256"],
+                                records=records[:-1])
+            write_new_json(release, release_body)
+            evaluate = ["evaluate", *args[1:], "--output", str(result),
+                        "--threshold", str(output), "--threshold-sha256", receipt["threshold_sha256"],
+                        "--release", str(release)]
+            rejected = subprocess.run(command + evaluate, cwd=root, env=env, text=True, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("authorized partition", rejected.stderr)
+            self.assertFalse(result.exists())
+            release.unlink()
+            write_new_json(release, {**release_body, "records": records})
+            subprocess.run(command + evaluate, cwd=root, env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(read_json(result)["overall"]["count"], len(records))
+
+    def test_finite_ill_conditioned_covariance_is_rejected(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.train import fit
+        cov = np.diag([1e-18] + [1.0] * 29)
+        out = Path(self.tmp.name) / "ill_conditioned"
+        with patch("sklearn.covariance.LedoitWolf.fit", return_value=SimpleNamespace(covariance_=cov)):
+            with self.assertRaisesRegex(ProtocolError, "ill-conditioned"):
+                fit(self.binding, self.train, None, self.cfg, out, resolver=self.resolver, log=lambda *_: None)
+        self.assertFalse((out / "model.json").exists())
+
+    def test_second_publication_preserves_existing_model_bytes(self):
+        from shared_protocol.detectors.oneclass.model import save_model
+        original = self.model_path.read_bytes()
+        body = read_json(self.model_path)["model"]
+        body["mean"][0] += 1
+        with self.assertRaises(FileExistsError):
+            save_model(self.model_path, body)
+        self.assertEqual(self.model_path.read_bytes(), original)
+
+    def test_fit_rejects_oversized_and_nonregular_adapters_without_prehash(self):
+        import os
+        from unittest.mock import patch
+        from shared_protocol.detectors.oneclass.train import fit
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "oversized"
+            with path.open("wb") as handle:
+                handle.truncate(2 << 20)
+            fifo = Path(tmp) / "fifo"
+            os.mkfifo(fifo)
+            for target, reason in ((path, "exceeds"), (fifo, "regular")):
+                with self.subTest(target=target), patch("shared_protocol.detectors.peftguard.train.sha256_file",
+                                                       side_effect=AssertionError("preliminary hash")):
+                    with self.assertRaisesRegex(ProtocolError, reason):
+                        fit(self.binding, self.train, None, self.cfg, Path(tmp) / "run",
+                            resolver=lambda _: target, log=lambda *_: None)
+
+    def test_validation_diagnostics_do_not_change_fitted_parameters(self):
+        from shared_protocol.detectors.oneclass.train import fit
+        path = Path(self.tmp.name) / "no_validation"
+        result = fit(self.binding, self.train, None, self.cfg, path, resolver=self.resolver, log=lambda *_: None)
+        expected = read_json(self.model_path)["model"]
+        actual = read_json(result["model_file"])["model"]
+        self.assertIsNone(actual.pop("diagnostics")["validation_auroc_not_used_for_anything"])
+        expected.pop("diagnostics")
+        self.assertEqual(expected, actual)
 
 
 if __name__ == "__main__":
